@@ -1,0 +1,6 @@
+__pycache__/
+.pytest_cache/
+nicla/wifi_config.py
+recordings/
+captures/
+*.pyc
