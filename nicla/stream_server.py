@@ -41,7 +41,7 @@ DEMO_BLOBS = True           # phase-1 stand-in detector
 BLOB_LAB = (0, 45, 0, 35, 0, 45)
 BLOB_MIN_PIXELS = 120
 # Illumination LED for wet-floor (urine) detection - see docs/phase1.md 1-6.
-ILLUM_PIN = "D0"            # gate of a logic-level MOSFET driving the LED; None = no LED
+ILLUM_PIN = "D0"            # -> 1k -> gate of IRLZ44N (100k gate pull-down); None = no LED
 ILLUM_MODE = "off"          # "off" | "on" | "alt" (toggle every frame -> on/off pairs)
 ILLUM_SETTLE = 1            # frames discarded after switching (sensor pipeline lag)
 LOCK_WITH_ILLUM = True      # set exposure with the LED on, so lit frames don't saturate
