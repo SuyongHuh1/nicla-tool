@@ -139,5 +139,41 @@ class Led:
         self.set(not self.state)
 
 
+class Illuminator:
+    """External illumination LED switched through a logic-level MOSFET on a
+    header pin (default D0). The Nicla pins supply only a few mA behind level
+    shifters - never drive the LED directly from the pin."""
+
+    def __init__(self, pin_name="D0", active_high=True):
+        self.pin = None
+        self.active_high = active_high
+        self.on = False
+        if pin_name:
+            try:
+                from machine import Pin
+                self.pin = Pin(pin_name, Pin.OUT)
+            except Exception as e:
+                print("# illum unavailable:", e)
+        self.set(False)
+
+    def available(self):
+        return self.pin is not None
+
+    def set(self, on):
+        self.on = bool(on)
+        if self.pin is not None:
+            self.pin.value(1 if self.on == self.active_high else 0)
+
+
+def flicker_safe_us(exposure_us, mains_hz=60):
+    """Round an exposure to a whole number of mains flicker periods
+    (lights flicker at 2x mains: 8333 us in Korea). Integrating whole periods
+    makes every frame collect the same ambient light, which keeps LED on/off
+    difference images clean."""
+    period = 1000000.0 / (2 * mains_hz)
+    n = max(1, int(exposure_us / period + 0.5))
+    return int(n * period)
+
+
 def ticks():
     return time.ticks_ms()

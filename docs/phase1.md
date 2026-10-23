@@ -1,115 +1,125 @@
-# 1단계: 하드웨어 검증
+# 1단계: 하드웨어 확인 (간략판)
 
-목표: 학습을 시작하기 전에 **이 하드웨어로 무엇을 잴 수 있는지** 판정한다.
-결과에 따라 2단계 데이터 수집 방식(ToF 사용 여부, 장착 위치, 카메라 설정)이 확정된다.
+목표: 학습 데이터를 모으기 전에 **세 가지만 확인**한다. 전부 합쳐 2시간 안쪽, 추가 구매는 거의 없음.
 
-| 작업 | 질문 | 도구 | 판정 기준 |
+| 실험 | 확인할 것 | 시간 | 필요한 것 |
 |---|---|---|---|
-| 1-1 환경 | 보드·노트북이 준비됐나 | OpenMV IDE, `pip install` | 모든 스크립트 실행됨 |
-| 1-2 장착 기하 | 바닥이 얼마나 보이고 1px이 몇 mm인가 | `viewer.py` + `calibrate.py` | FOMO 칸 1개 ≤ 15 mm |
-| 1-3 ToF | 5 mm 높이 차이를 구분하나 | `tof_logger.py` + `capture.py` + `analyze_tof.py` | d' ≥ 3 |
-| 1-4 노출 | 조명 고정 시 밝기가 안정적인가 | `exposure_test.py` + `analyze_exposure.py` | 10분 변동 ≤ 5% |
-| 1-5 Wi-Fi | 노트북으로 몇 fps, 지연 얼마로 오나 | `stream_server.py` + `viewer.py` | ≥ 8 fps, 지연 p95 ≤ 300 ms |
+| A. 송출 | 노트북에 영상이 오고 검출 박스가 뜨나, 몇 fps인가 | 30분 | 노트북 핫스팟 |
+| B. ToF 높이 | 몇 mm 높이 차이까지 구분하나 | 40분 | 높이가 다른 집 물건 3개, 자 |
+| C. 젖은 바닥 | 물 웅덩이가 카메라에 보이나 | 40분 | 장판, 물, 폰 플래시 |
+| D. LED 자동 점멸 | 보드가 LED를 직접 켜고 끄며 C를 자동으로 할 수 있나 | 1~2시간 | 브레드보드용 LED 회로 부품 (약 1.7만 원, 납땜 없음) |
 
-차량 제어(UART)는 차량 쪽 보드가 정해진 뒤 추가한다. 지금은 명령이 보드까지 도착하는지(ack)만 확인한다.
+준비물과 구매 링크: [parts.md](parts.md)
 
----
+화면 기하(1px이 몇 mm인지)는 B를 하면서 체스보드 사진 한 장으로 같이 잰다.
+D는 주행 중 액체 판별을 넣기로 했기 때문에 추가한 실험이다. C에서 물이 보이는 걸 확인한 뒤에 한다. 노출 장시간 안정성, 여러 장착 높이·각도 비교는 필요해질 때 한다.
 
-## 1-1. 환경 준비 (한 번만)
+## 준비 (한 번만)
 
-1. **OpenMV IDE** 설치 → Nicla 연결 → IDE가 펌웨어 업데이트를 제안하면 진행 (OpenMV 펌웨어가 아니면 여기서 설치됨)
+1. **OpenMV IDE** 설치 → Nicla를 Micro USB(데이터 케이블)로 연결 → 펌웨어 업데이트 제안이 뜨면 진행
 2. 노트북에서:
    ```
    git clone https://github.com/SuyongHuh1/nicla-tool
    cd nicla-tool
    py -m pip install -r laptop\requirements.txt
-   py -m pytest -q tests          # 14 passed 이면 정상
    ```
 3. 보드 드라이브(USB로 연결하면 보이는 디스크)에 `nicla\camlib.py`, `nicla\nvproto.py` 복사
-4. `nicla\wifi_config_example.py`를 `wifi_config.py`로 복사해 핫스팟 이름/비밀번호 입력 후 보드 드라이브에 복사
-   - **노트북 모바일 핫스팟(2.4 GHz)** 추천. 학교 Wi-Fi(학번 로그인)는 안 됨
-   - 안테나(U.FL)를 보드 J6에 꼭 연결
+4. `nicla\wifi_config_example.py`를 `wifi_config.py`로 복사해 노트북 핫스팟 이름·비밀번호(2.4 GHz)를 적고 보드 드라이브에 복사
+5. 안테나를 보드 J6 커넥터에 연결
 
-**스크립트 실행 방법 두 가지**
-- 화면만 볼 때: OpenMV IDE에서 열고 ▶ 실행
-- `capture.py`로 기록할 때: IDE에서 *Tools → Save open script to OpenMV Cam (as main.py)* → **IDE 종료** → 보드 리셋 버튼. (IDE가 켜져 있으면 COM 포트를 점유함)
+카메라 위치는 **실제로 달 위치 하나**만 정한다 (차체 위, 또는 비슷한 높이의 상자 위에 테이프로 고정). 각도는 폰 수평계 앱으로 한 번 재서 적어 둔다.
 
-## 1-2. 장착 기하 (calibration)
+---
 
-1. 체스보드 인쇄: `py laptop\calibrate.py board` → `results\calib\chessboard_9x7_20mm.pdf`를 **실제 크기(100%)**로 인쇄, 50 mm 막대를 자로 확인
-2. 카메라를 실제 장착 위치에 고정. 아래 조합마다 반복 (라벨 예: `floor_h120_t45`)
-   - 높이: 실제 장착 높이 1개 + 위아래 1개씩
-   - 하향 각도: 2종 (예: 30°, 45°)
-3. 체스보드를 카메라 앞 바닥에 평평하게 놓고 `stream_server.py` 실행 → `py laptop\viewer.py --host <IP> --label floor_h120_t45` → **C** 키로 저장
-4. `py laptop\calibrate.py floor captures\floor_h120_t45_*.jpg`
-   - 출력: 화면 아래/가운데/위의 mm/px, 보이는 바닥 폭·깊이, **FOMO 칸 1개의 실제 크기**
-   - `results\calib\floor_*_check.png`에 10 mm 격자가 체스보드와 맞으면 성공
-5. (선택) 렌즈 왜곡이 크면: 체스보드를 여러 각도로 15장 찍어 `calibrate.py intrinsics captures\cal_*.jpg` → floor에 `--intrinsics results\calib\intrinsics.json`
+## A. 송출 확인 (30분)
 
-**판정**: 분변 크기(지름 20~40 mm)를 생각하면 FOMO 칸 1개가 15 mm 이하여야 검출이 안정적. 넘으면 카메라를 낮추거나 각도를 키움.
+1. OpenMV IDE에서 `nicla\stream_server.py`를 열고 *Tools → Save open script to OpenMV Cam (as main.py)* → 보드 리셋
+2. IDE 시리얼 터미널에 `stream_server ready: <IP>:5005`가 뜸 (핫스팟의 연결된 기기 목록에서도 IP 확인 가능)
+3. IDE를 닫고:
+   ```
+   py laptop\viewer.py --host <IP> --label wifi --duration 60
+   ```
+4. 화면 확인: 갈색 물건(초콜릿, 갈색 지우개 등)을 놓으면 분홍 박스가 떠야 함. WASD를 누르면 화면 위 `drive` 값이 바뀌어야 함 (차량 연결 전이라 명령 도착만 확인)
 
-## 1-3. ToF 판별력 (핵심 실험)
+**결과**: 60초 뒤 `results\stream\wifi.json`에 fps와 지연이 저장됨. **8 fps 이상이면 통과.** 박스가 안 뜨면 `stream_server.py`의 `BLOB_LAB` 값을 OpenMV IDE *Tools → Machine Vision → Threshold Editor*로 조정.
 
-**준비물**: 높이 5 / 10 / 20 / 30 mm 블록을 두 가지 면적(약 30×30 mm, 60×60 mm)으로. 지우개, 레고, 골판지 적층 등. 바닥과 비슷한 색이면 더 좋음.
+## B. ToF 높이 + 화면 크기 (40분)
 
-**블록 위치**: 카메라 화면 정중앙(ToF는 카메라 옆에서 같은 방향을 봄). viewer에서 ToF 값이 변하는 위치를 먼저 확인.
+**화면 크기 먼저 (5분)**
+1. `py laptop\calibrate.py board`로 만든 `results\calib\chessboard_9x7_20mm.pdf`를 **실제 크기(100%)**로 인쇄, 바닥에 테이프로 평평하게 붙임
+2. 뷰어를 켜고 **C** 키 → `captures\` 폴더에 사진 저장
+3. `py laptop\calibrate.py floor captures\<저장된 파일>.jpg`
+   → 1px이 몇 mm인지, 바닥이 얼마나 보이는지 출력
 
-보드에 `tof_logger.py`를 main.py로 저장한 뒤, 조건마다:
-```
-py laptop\capture.py --kind tof --label h00_b00_t45            # 바닥만 (기울기마다 1번)
-py laptop\capture.py --kind tof --label h05_b30_t45
-py laptop\capture.py --kind tof --label h10_b30_t45
-py laptop\capture.py --kind tof --label h20_b30_t45
-py laptop\capture.py --kind tof --label h30_b30_t45
-py laptop\capture.py --kind tof --label h05_b60_t45
-...  (b60도 동일)
-```
-라벨 규칙: `h<높이mm>_b<블록mm>_<태그>`. 태그는 장착 조건(기울기·높이). 같은 태그끼리 비교된다.
+**ToF 높이 (35분)**
+1. 높이가 다른 납작한 물건 3개를 고른다. 대략 5 / 10 / 20 mm (지우개, 휴대폰 케이스, 책, 동전 더미 등). 가로세로 4 cm 이상인 것. **자로 높이를 재서** 라벨에 그 값을 쓴다
+2. OpenMV IDE에서 `nicla\tof_logger.py`를 main.py로 저장 → IDE 닫고 리셋
+3. 물건을 카메라 화면 정중앙에 하나씩 놓고:
+   ```
+   py laptop\capture.py --kind tof --label h00_b40        # 바닥만
+   py laptop\capture.py --kind tof --label h06_b40        # 6 mm 물건
+   py laptop\capture.py --kind tof --label h11_b40
+   py laptop\capture.py --kind tof --label h21_b40
+   py laptop\analyze_tof.py --tilt-deg <잰 각도, 수직 아래면 90>
+   ```
+   라벨 규칙: `h<높이mm>_b<물건 크기mm>`
 
-분석:
-```
-py laptop\analyze_tof.py --tilt-deg 45
-```
-→ `results\tof\verdict.md`, `summary.png`
+**결과**: `results\tof\verdict.md`. 가장 작은 높이 차이가 구분되면(d' ≥ 3) **PASS → ToF 높이를 모델 입력으로 사용**. 안 되면 ToF는 빼고 카메라만으로 간다 (라인 레이저 같은 추가 장치는 쓰지 않음).
 
-**판정**
-- **PASS**: 5 mm 간격의 모든 쌍에서 d' ≥ 3 → ToF 높이를 모델 B 특징으로 사용
-- **조건부**: 60 mm 블록만 통과 → ToF 측정 영역이 작은 물체보다 큼. 근거리 장착 또는 ROI 축소(전체 ST 드라이버 필요) 검토
-- **FAIL**: 라인 레이저 삼각측량으로 전환
+## C. 젖은 바닥 (40분)
 
-참고: VL53L1X 시야각은 약 27°. 거리 100 mm에서 측정 영역 지름 약 48 mm, 기울이면 앞뒤로 더 길어짐. `verdict.md`에 조건별 측정 영역 크기가 계산되어 나온다.
+LED 회로 대신 **폰 플래시**를 쓴다. 같은 자리에서 플래시를 켠 사진과 끈 사진을 비교하면, 주변 조명은 두 사진에 똑같이 들어가서 빠지고 플래시가 만든 반사만 남는다.
 
-## 1-4. 조명·노출 고정
+1. 구매한 장판을 30 cm 정도 잘라 카메라 앞에 깔고, 물 5 g(주방저울)을 붓는다. 노란색을 내고 싶으면 보리차를 쓴다
+2. 뷰어를 `--label wood`로 켜 둔 채, 폰 플래시를 카메라 옆에서 바닥을 비스듬히 비추게 들고:
+   - 플래시 **켜고 C**, 이어서 **끄고 C** → 터미널에 저장된 파일 이름 두 개가 찍힘 (먼저 것이 켬)
+   - 그 사이 카메라·폰 위치가 움직이지 않게 주의
+3. 분석 (처음에 마우스로 웅덩이와 마른 바닥을 한 번씩 드래그):
+   ```
+   py laptop\wet_analyze.py --pair captures\<켬 파일>.jpg captures\<끔 파일>.jpg --label wood_room --select
+   ```
+4. 같은 방법으로 두 번 더:
+   - **실내등 끄고** 한 쌍 (조명이 바뀌어도 보이는지)
+   - **물 없이 스텐판이나 PET 필름**을 놓고 한 쌍 (반짝이는 마른 표면을 물로 착각하는지)
 
-보조 LED를 켠 상태로 `exposure_test.py`를 main.py로 저장:
-```
-py laptop\capture.py --kind exposure --label lock_led --seconds 600
-```
-비교용으로 파일 상단 `LOCK = False`로 바꿔 한 번 더 (`--label auto_led`). 주변 조명을 일부러 바꿔 보면(형광등 끄기 등) 차이가 잘 보인다.
-```
-py laptop\analyze_exposure.py
-```
-**판정**: LOCK 조건에서 변동 ≤ 5%, 노출값 고정 유지. 실패 시 LED 밝기를 올리고 노출 시간을 짧게 고정.
+**결과**: `results\wet\summary.md`. 플래시 차분(`켬−끔 차분`) d' ≥ 3이 실내등 켬/끔 모두에서 나오고, 스텐판·필름에서는 안 나오면 **2단계에서 액체 데이터도 모은다**. 안 보이면 1차 목표는 분변만으로 좁힌다.
 
-## 1-5. Wi-Fi 송출
+## D. LED 자동 점멸 (1~2시간)
 
-`stream_server.py`를 main.py로 저장 (camlib.py, nvproto.py, wifi_config.py 함께). OpenMV IDE 시리얼 터미널에 `stream_server ready: <IP>:5005`가 표시됨 (핫스팟 연결 기기 목록에서도 확인 가능).
+C의 폰 플래시 역할을 보드가 직접 한다. 보드가 프레임마다 LED를 켜고 꺼서, 켠 프레임과 끈 프레임이 번갈아 노트북으로 온다.
 
-JPEG 품질별로 60초씩:
-```
-py laptop\viewer.py --host <IP> --label wifi_q30 --jpeg-q 30 --duration 60
-py laptop\viewer.py --host <IP> --label wifi_q50 --jpeg-q 50 --duration 60
-py laptop\viewer.py --host <IP> --label wifi_q70 --jpeg-q 70 --duration 60
-```
-→ `results\stream\wifi_q*.json` (fps, 지연 p50/p95, 왕복시간)
+**회로** (납땜 없음, 전부 브레드보드에 꽂음)
+- 브레드보드 전원 모듈을 830홀 브레드보드 끝에 꽂고 점퍼를 5 V로 둔다. 휴대폰 충전기 + Micro USB 케이블로 전원 공급
+- 5mm 고휘도 백색 LED 6개: 긴 다리(+) → 100 Ω → 5 V 줄. 짧은 다리(−)는 한 줄에 모아 MOSFET 드레인(D)으로
+- IRLZ44N (글자 면을 보고 왼쪽부터 G·D·S): 소스(S) → GND 줄, 게이트(G) → 1 kΩ → Nicla `D0`, 게이트 → 100 kΩ → GND 줄
+- Nicla `GND` → 브레드보드 GND 줄 (빠뜨리면 LED가 안 켜짐)
+- LED는 웅덩이 쪽으로 향하게 브레드보드째 세워서 테이프로 고정. 어두우면 LED+100 Ω 묶음을 더 꽂는다 (전원 모듈 500 mA 한도 안에서 20개까지)
+- Nicla J1·J2에 핀이 없고 구멍만 있으면 점퍼선을 꽂을 수 없다. 실습실에서 핀헤더만 납땜해 달라고 하는 게 가장 빠르다
 
-화면 확인: 갈색 물체를 놓으면 분홍 박스(데모 색상 검출)가 표시되어야 함. 안 잡히면 OpenMV IDE의 *Tools → Machine Vision → Threshold Editor*로 `BLOB_LAB` 값을 조정.
-조종 키(WASD)를 누르면 HUD의 `drive` 값이 바뀌어야 함 (보드까지 명령 도착 확인).
+**확인**
+1. `stream_server.py`에서 `ILLUM_PIN = "D0"`로 바꾸고 보드에 저장
+2. `py laptop\viewer.py --host <IP> --illum alt` → 화면 위 `led` 값이 1/0으로 바뀌고, LED가 깜빡여야 함
+3. **V** 키 → 켬−끔 차분 화면. C에서 쓴 웅덩이가 밝게 떠야 함
+4. 웅덩이를 그대로 두고 10초 녹화 후 분석:
+   ```
+   py laptop\viewer.py --host <IP> --illum alt --record --duration 10 --label wood_led
+   py laptop\wet_analyze.py recordings\<녹화 폴더> --select
+   ```
+5. LED가 안 켜지면: GND 공통 연결, LED 방향(긴 다리가 +), 전원 모듈 점퍼(5 V)를 확인. 멀티미터가 있으면 게이트 전압이 3 V 이상인지 본다
 
-**판정**: 8 fps 이상, 지연 p95 300 ms 이하인 품질 중 가장 높은 값 채택. 미달이면 QQVGA(160×120) 송출 검토.
+**결과**: C(폰 플래시)와 비슷한 d'가 나오면 회로 완성. 경고에 "settle"이 나오면 LED 전환과 촬영이 한 프레임 어긋난 것이라 `ILLUM_SETTLE = 2`로 올린다. 대비가 부족하면 편광 필름을 LED 앞과 렌즈 앞에 한 장씩 붙여 본다.
+
+주행 중에는 두 프레임 사이에 차가 움직여 물체 테두리가 차분 화면에 뜬다. 처리 방법(감속 후 정지 확인)은 [architecture.md](architecture.md)에 있다.
 
 ---
 
 ## 결과 전달
 
-`results\` 폴더를 git으로 올리면(`git add results && git commit -m "phase1 results" && git push`) 분석·판정을 이어서 진행한다. 녹화 영상(`recordings\`)은 용량이 커서 git에서 제외되어 있으니 필요하면 Google Drive로.
+`results\` 폴더를 git으로 올리거나(`git add results && git commit -m "phase1" && git push`), 이 대화에 연결된 폴더로 알려 주면 판정을 이어서 한다.
+
+## 나중에 필요해지면 (지금은 안 함)
+
+| 항목 | 언제 | 도구 |
+|---|---|---|
+| 노출 장시간 안정성 | 데이터 수집 중 밝기가 흔들릴 때 | `exposure_test.py`, `analyze_exposure.py` |
+| 렌즈 왜곡 보정 | 면적 계산 오차가 클 때 | `calibrate.py intrinsics` |

@@ -3,8 +3,10 @@
   py laptop\\fake_nicla.py              (listens on 127.0.0.1:5005)
   py laptop\\viewer.py --host 127.0.0.1
 
-Sends synthetic 320x240 frames (a brown blob drifting over a wooden floor)
-with the same header fields and command handling as nicla/stream_server.py.
+Sends synthetic 320x240 frames (a brown blob drifting over a wooden floor,
+plus a still, nearly invisible puddle that glints when the illumination LED
+is on) with the same header fields and command handling as
+nicla/stream_server.py.
 """
 import argparse
 import socket
@@ -18,6 +20,8 @@ import numpy as np
 import nvlink
 
 MODES = ("manual", "assist", "auto")
+ILLUM_MODES = ("off", "on", "alt")
+PUDDLE = ((70, 190), (30, 14))   # centre, half axes (px)
 
 
 class FakeBoard:
@@ -31,17 +35,28 @@ class FakeBoard:
         base[:] = (120, 165, 200)          # light wood, BGR
         self.floor = np.clip(base + grain[..., None], 0, 255).astype(np.uint8)
         self.state = {"mode": "manual", "vehicle": "not_connected", "last_drive": None,
-                      "jpeg_q": 50, "tof_every": 3, "blobs": True}
+                      "jpeg_q": 50, "tof_every": 3, "blobs": True, "illum": "off", "settle": 1}
+        # fixed specular pattern inside the puddle (where the LED glints)
+        pm = np.zeros((h, w), np.uint8)
+        cv2.ellipse(pm, PUDDLE[0], PUDDLE[1], 0, 0, 360, 1, -1)
+        self.puddle = pm.astype(bool)
+        glint = self.rng.random((h, w)) < 0.35
+        self.glint = self.puddle & glint
 
     def ms(self):
         return int((time.monotonic() - self.t0) * 1000)
 
-    def frame(self, seq):
+    def frame(self, seq, led=False):
         img = self.floor.copy()
+        # puddle: barely darker and a touch more yellow with ambient light only
+        img[self.puddle] = np.clip(img[self.puddle].astype(np.int16) + (-2, -2, -2), 0, 255).astype(np.uint8)
         t = seq / self.fps
         cx = int(self.w / 2 + 80 * np.sin(t * 0.6))
         cy = int(self.h / 2 + 40 * np.sin(t * 0.9))
         cv2.ellipse(img, (cx, cy), (28, 18), (t * 20) % 180, 0, 360, (30, 55, 90), -1)
+        if led:
+            img = cv2.add(img, (22, 22, 22, 0))           # diffuse LED light on everything
+            img[self.glint] = (235, 240, 240)             # specular glints on the wet film
         noise = self.rng.integers(-6, 7, img.shape, dtype=np.int16)
         img = np.clip(img.astype(np.int16) + noise, 0, 255).astype(np.uint8)
         dets = []
@@ -79,6 +94,10 @@ class FakeBoard:
                 self.state[k] = max(1, min(100, int(v)))
             elif k == "blobs":
                 self.state[k] = bool(v)
+            elif k == "illum" and v in ILLUM_MODES:
+                self.state[k] = v
+            elif k == "settle":
+                self.state[k] = max(0, min(3, int(v)))
             replies["ack"] = cmd.get("seq")
         else:
             replies["err"] = "unknown command"
@@ -99,12 +118,14 @@ class FakeBoard:
                     self.handle(cmd, replies)
             except BlockingIOError:
                 pass
-            img, dets, tof = self.frame(seq)
+            mode = self.state["illum"]
+            led = (seq % 2 == 0) if mode == "alt" else (mode == "on")
+            img, dets, tof = self.frame(seq, led)
             t_cap = self.ms()
             ok, jpg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, self.state["jpeg_q"]])
             hdr = {"v": 1, "seq": seq, "ms": t_cap, "w": self.w, "h": self.h, "tof_mm": tof, "det": dets,
                    "mode": self.state["mode"], "vehicle": self.state["vehicle"], "drive": self.state["last_drive"],
-                   "fps": self.fps, "q": self.state["jpeg_q"]}
+                   "fps": self.fps, "q": self.state["jpeg_q"], "led": int(led), "illum": mode}
             if seq % 30 == 0:
                 hdr["cam"] = {"locked": True, "exp_us": 10000, "gain_db": 6.0, "wb": None, "lock_errors": [], "fake": True}
             hdr.update(replies)

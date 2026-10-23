@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 
 _T0 = time.monotonic()
+LED_STATE = {"D0": 0}   # simulated illumination pin, read by the fake camera
 
 
 def _ticks_ms():
@@ -88,6 +89,9 @@ class _CSI:
         img = np.full((240, 320, 3), (120, 165, 200), np.uint8)
         cx = 160 + int(60 * np.sin(self.n / 10))
         cv2.circle(img, (cx, 120), 22, (30, 55, 90), -1)
+        if LED_STATE["D0"]:                       # LED lights the scene; the puddle glints
+            img = cv2.add(img, (25, 25, 25, 0))
+            cv2.ellipse(img, (70, 190), (30, 14), 0, 0, 360, (250, 250, 250), -1)
         return Image(img)
 
     def exposure_us(self): return self.exp
@@ -111,6 +115,18 @@ def install(wifi_mode="sta"):
         def on(self): pass
         def off(self): pass
     machine.LED = LED
+
+    class Pin:
+        OUT, IN = 1, 0
+
+        def __init__(self, name, mode=None):
+            self.name = name
+
+        def value(self, v=None):
+            if v is None:
+                return LED_STATE.get(self.name, 0)
+            LED_STATE[self.name] = v
+    machine.Pin = Pin
     machine.I2C = lambda n: ("i2c", n)
     sys.modules["machine"] = machine
 

@@ -7,6 +7,8 @@ Keys
   + / -     drive speed           1 2 3  mode manual / assist / auto
   [ / ]     JPEG quality -/+      B      toggle demo blob detector
   R         start/stop recording  C      save current frame to captures/
+  L         illumination LED: off -> on -> alt (alternate every frame)
+  V         view: camera / LED on-off difference (needs alt; shows wet glints)
   H         toggle help           Q/ESC  quit (writes a session summary)
 
 Recording saves raw JPEGs (no overlay) + header JSON lines, so recordings can
@@ -53,6 +55,7 @@ class Link:
         self.lock = threading.Lock()
         self.latest = None            # (hdr, jpg, t_recv)
         self.latest_id = 0
+        self.last_by_led = {}         # led flag -> latest jpg, for the difference view
         self.alive = True
         self.error = None
         self.cmd_seq = 0
@@ -101,6 +104,8 @@ class Link:
                 with self.lock:
                     self.latest = (hdr, jpg, t)
                     self.latest_id += 1
+                    if "led" in hdr:
+                        self.last_by_led[hdr["led"]] = jpg
                 if self.rec_dir:
                     self._record(hdr, jpg, t)
         except (OSError, ConnectionError, nvlink.ProtocolError, ValueError) as e:
@@ -222,11 +227,13 @@ def hud_lines(link, hdr, speed, recording, show_help):
     lines = ["fps board %.1f | lat %s ms | rtt %s ms | q %s" % (hdr.get("fps", 0), "%.0f" % lat if lat is not None else "-",
                                                               "%.0f" % rtt if rtt is not None else "-", hdr.get("q", "-")),
              "ToF %s mm | det %d | mode %s" % (tof if tof is not None else "-", len(hdr.get("det", []) or []), hdr.get("mode", "?")),
-             "vehicle %s | drive %s | speed %d%%" % (hdr.get("vehicle", "?"), hdr.get("drive"), speed)]
+             "vehicle %s | drive %s | speed %d%%" % (hdr.get("vehicle", "?"), hdr.get("drive"), speed),
+             "illum %s | led %s" % (hdr.get("illum", "-"), hdr.get("led", "-"))]
     if recording:
         lines.append("REC %d" % link.rec_count)
     if show_help:
-        lines += ["WASD drive  SPACE stop  +/- speed  1/2/3 mode", "[ ] jpeg q  B blobs  R rec  C snap  Q quit"]
+        lines += ["WASD drive  SPACE stop  +/- speed  1/2/3 mode", "[ ] jpeg q  B blobs  R rec  C snap  Q quit",
+                  "L illum off/on/alt  V diff view"]
     return lines
 
 
@@ -241,6 +248,7 @@ def main(argv=None):
     ap.add_argument("--duration", type=float, help="stop after N seconds")
     ap.add_argument("--record", action="store_true", help="start recording immediately")
     ap.add_argument("--jpeg-q", type=int, help="ask the board for this JPEG quality at start")
+    ap.add_argument("--illum", choices=("off", "on", "alt"), help="set the illumination LED mode at start")
     ap.add_argument("--out", default="results")
     a = ap.parse_args(argv)
 
@@ -252,6 +260,8 @@ def main(argv=None):
     print("connected to %s:%d" % (a.host, a.port))
     if a.jpeg_q:
         link.send({"t": "set", "key": "jpeg_q", "val": a.jpeg_q})
+    if a.illum:
+        link.send({"t": "set", "key": "illum", "val": a.illum})
     if a.record:
         print(link.toggle_record())
 
@@ -266,6 +276,9 @@ def main(argv=None):
     shown_id = 0
     jpeg_q = a.jpeg_q or 50
     blobs = True
+    illum_modes = ("off", "on", "alt")
+    illum = a.illum or "off"
+    diff_view = False
     t_start = time.monotonic()
     try:
         while link.alive:
@@ -294,6 +307,15 @@ def main(argv=None):
                 shown_id = lid
                 hdr, jpg, _ = latest
                 img = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+                if diff_view and img is not None:
+                    import wetlib
+                    with link.lock:
+                        pair = (link.last_by_led.get(1), link.last_by_led.get(0))
+                    if pair[0] and pair[1]:
+                        on = cv2.imdecode(np.frombuffer(pair[0], np.uint8), cv2.IMREAD_COLOR)
+                        off = cv2.imdecode(np.frombuffer(pair[1], np.uint8), cv2.IMREAD_COLOR)
+                        if on is not None and off is not None and on.shape == off.shape:
+                            img = wetlib.heatmap(wetlib.diff_map(on, off))
                 if img is not None:
                     if a.scale != 1.0:
                         img = cv2.resize(img, None, fx=a.scale, fy=a.scale, interpolation=cv2.INTER_NEAREST)
@@ -338,6 +360,11 @@ def main(argv=None):
                     with open(p, "wb") as f:
                         f.write(latest[1])
                     print("saved", p)
+            elif ch == "l":
+                illum = illum_modes[(illum_modes.index(illum) + 1) % 3]
+                link.send({"t": "set", "key": "illum", "val": illum})
+            elif ch == "v":
+                diff_view = not diff_view
             elif ch == "h":
                 show_help = not show_help
     except KeyboardInterrupt:

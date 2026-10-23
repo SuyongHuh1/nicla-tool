@@ -40,8 +40,16 @@ DEMO_BLOBS = True           # phase-1 stand-in detector
 # Tune with OpenMV IDE: Tools > Machine Vision > Threshold Editor.
 BLOB_LAB = (0, 45, 0, 35, 0, 45)
 BLOB_MIN_PIXELS = 120
+# Illumination LED for wet-floor (urine) detection - see docs/phase1.md 1-6.
+ILLUM_PIN = None            # experiment C uses a phone flashlight. With the D breadboard LED circuit: "D0"
+ILLUM_MODE = "off"          # "off" | "on" | "alt" (toggle every frame -> on/off pairs)
+ILLUM_SETTLE = 1            # frames discarded after switching (sensor pipeline lag)
+LOCK_WITH_ILLUM = True      # set exposure with the LED on, so lit frames don't saturate
+FLICKER_SAFE = True         # exposure = whole number of 8.33 ms mains-flicker periods
+MAINS_HZ = 60
 MODES = ("manual", "assist", "auto")
-SETTABLE = ("jpeg_q", "tof_every", "blobs")
+ILLUM_MODES = ("off", "on", "alt")
+SETTABLE = ("jpeg_q", "tof_every", "blobs", "illum", "settle")
 # -------------------------------------------------------------------------
 
 led = camlib.Led("LED_BLUE")
@@ -53,6 +61,8 @@ state = {
     "jpeg_q": JPEG_QUALITY,
     "tof_every": TOF_EVERY,
     "blobs": DEMO_BLOBS,
+    "illum": ILLUM_MODE,
+    "settle": ILLUM_SETTLE,
 }
 
 
@@ -119,6 +129,10 @@ def handle(cmd, replies):
                 v = clamp(int(v), 5, 95)
             elif k == "tof_every":
                 v = clamp(int(v), 1, 100)
+            elif k == "settle":
+                v = clamp(int(v), 0, 3)
+            elif k == "illum":
+                v = v if v in ILLUM_MODES else state["illum"]
             else:
                 v = bool(v)
             state[k] = v
@@ -143,7 +157,21 @@ def detect(img):
 
 
 # ------------------------------------------------------------------ serve
-def serve(client, cam, tof, cam_info):
+def capture(cam, illum, seq):
+    """Switch the illumination LED as the mode asks, then take a frame.
+    Returns (image, led_was_on)."""
+    mode = state["illum"]
+    want = (seq % 2 == 0) if mode == "alt" else (mode == "on")
+    if not illum.available():
+        want = False
+    if want != illum.on:
+        illum.set(want)
+        for _ in range(state["settle"]):
+            cam.snapshot()
+    return cam.snapshot(), illum.on
+
+
+def serve(client, cam, tof, cam_info, illum):
     client.settimeout(3.0)
     poller = select.poll()
     poller.register(client, select.POLLIN)
@@ -164,7 +192,7 @@ def serve(client, cam, tof, cam_info):
             for cmd in reader.feed(data):
                 handle(cmd, replies)
 
-        img = cam.snapshot()
+        img, led_on = capture(cam, illum, seq)
         t_cap = time.ticks_ms()
         if seq % state["tof_every"] == 0:
             tof_mm = camlib.tof_read(tof)
@@ -174,7 +202,8 @@ def serve(client, cam, tof, cam_info):
         hdr = {"v": nvproto.PROTO_VERSION, "seq": seq, "ms": t_cap,
                "w": img.width(), "h": img.height(), "tof_mm": tof_mm,
                "det": dets, "mode": state["mode"], "vehicle": state["vehicle"],
-               "drive": state["last_drive"], "fps": round(fps, 1), "q": state["jpeg_q"]}
+               "drive": state["last_drive"], "fps": round(fps, 1), "q": state["jpeg_q"],
+               "led": 1 if led_on else 0, "illum": state["illum"] if illum.available() else "none"}
         if seq % 30 == 0:
             hdr["cam"] = cam_info
             hdr["mem"] = gc.mem_free()
@@ -194,11 +223,19 @@ def serve(client, cam, tof, cam_info):
 
 
 def main():
-    cam = camlib.Camera(FRAMESIZE)
-    errs = cam.lock() if LOCK_CAMERA else []
+    illum = camlib.Illuminator(ILLUM_PIN)
+    illum.set(LOCK_WITH_ILLUM and illum.available())
+    cam = camlib.Camera(FRAMESIZE)          # auto exposure settles here
+    errs = []
+    if LOCK_CAMERA:
+        exp0, _, _ = cam.state()
+        exp_lock = camlib.flicker_safe_us(exp0, MAINS_HZ) if (FLICKER_SAFE and exp0) else None
+        errs = cam.lock(exposure_us=exp_lock)
+    illum.set(False)
     exp, gain, wb = cam.state()
     cam_info = {"locked": LOCK_CAMERA, "exp_us": exp, "gain_db": gain,
-                "wb": list(wb) if wb else None, "lock_errors": errs}
+                "wb": list(wb) if wb else None, "lock_errors": errs,
+                "illum_pin": ILLUM_PIN if illum.available() else None}
     tof = camlib.open_tof()
     ip = wifi_up()
     led.set(True)
@@ -212,13 +249,14 @@ def main():
         client, addr = srv.accept()
         print("# client", addr)
         try:
-            serve(client, cam, tof, cam_info)
+            serve(client, cam, tof, cam_info, illum)
         except OSError as e:
             print("# client gone:", e)
         except Exception as e:          # keep the server alive on unexpected bugs
             print("# error:", e)
         finally:
             vehicle_stop()        # safety: never keep driving without a viewer
+            illum.set(False)
             try:
                 client.close()
             except Exception:

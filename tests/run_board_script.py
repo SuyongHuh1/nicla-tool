@@ -13,5 +13,6 @@ path = sys.argv[1]
 src = open(path, encoding="utf-8").read()
 if len(sys.argv) > 2:
     src = src.replace("PORT = 5005", "PORT = %d" % int(sys.argv[2]))
+src = src.replace('ILLUM_PIN = None', 'ILLUM_PIN = "D0"')   # the shim simulates an LED on D0
 sys.stdout.reconfigure(line_buffering=True)
 exec(compile(src, path, "exec"), {"__name__": "__main__"})

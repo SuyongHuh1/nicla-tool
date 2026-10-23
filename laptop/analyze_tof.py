@@ -199,10 +199,14 @@ def main(argv=None):
     ap.add_argument("--in", dest="indir", default=os.path.join("results", "tof"))
     ap.add_argument("--out", dest="outdir")
     ap.add_argument("--tilt-deg", type=float, default=90.0, help="ToF axis angle below horizontal (90 = straight down)")
-    ap.add_argument("--step", type=int, default=5, help="height step that must be resolvable (mm)")
+    ap.add_argument("--step", type=int, help="height step that must be resolvable (mm); default = smallest gap you measured")
     ap.add_argument("--min-dprime", type=float, default=3.0)
     a = ap.parse_args(argv)
     groups, skipped = collect(a.indir)
+    if a.step is None:
+        hs = sorted({h for g in groups.values() for h in g} | {0})
+        gaps = [b - c for c, b in zip(hs, hs[1:])]
+        a.step = min(gaps) if gaps else 5
     if skipped:
         print("ignored (name not h<mm>_b<mm>[_tag]):", ", ".join(skipped))
     if not groups:
