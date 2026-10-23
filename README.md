@@ -19,7 +19,7 @@ Arduino Nicla Vision으로 바닥의 분변을 찾아 굳기(점성)를 판별�
 | `nicla/` | 보드용 MicroPython (OpenMV 펌웨어). 신·구 카메라 API 모두 지원 |
 | `laptop/` | 노트북용 Python: 측정 기록, 분석, 캘리브레이션, 뷰어, 보드 시뮬레이터 |
 | `tests/` | 보드 모듈을 흉내 내 보드 스크립트까지 PC에서 검증하는 테스트 |
-| `docs/` | [1단계 실험 절차](docs/phase1.md), [인식 구조](docs/architecture.md), [통신 규약](docs/protocol.md) |
+| `docs/` | [1단계 실험 절차](docs/phase1.md), [준비물](docs/parts.md), [인식 구조](docs/architecture.md), [통신 규약](docs/protocol.md) |
 | `results/` | 측정 결과 (git에 올림) |
 
 ## 빠른 시작 (보드 없이)
@@ -34,7 +34,7 @@ py laptop\viewer.py --host 127.0.0.1         # 창 2: 뷰어
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
-| 1 | 하드웨어 확인 (간략판, 약 2시간): 송출, ToF 높이, 젖은 바닥 | **진행 중** → [docs/phase1.md](docs/phase1.md) |
+| 1 | 하드웨어 확인: A 송출, B ToF 높이, C 젖은 바닥(폰 플래시), D LED 자동 점멸(납땜 없는 브레드보드 회로) | **부품 주문 중** → [docs/phase1.md](docs/phase1.md) |
 | 2 | 모사체 데이터 수집 (뷰어 녹화 기능 사용) | |
 | 3 | 학습: FOMO 검출(분변/액체) + MobileNetV2 굳기 분류(+ToF 특징), 액체는 LED 차분 → [구조](docs/architecture.md) | |
 | 4 | 보드 배포, 인식 결과 오버레이, 자율 정지 | |
