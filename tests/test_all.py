@@ -329,3 +329,28 @@ def test_board_alternating_led_under_shim():
         proc.kill()
         out = proc.communicate()[0]
     assert "Traceback" not in out, out
+
+
+def test_wet_photo_pair_mode(tmp_path):
+    """Phase-1 simple mode: one flashlight-on and one flashlight-off photo."""
+    b = fake_nicla.FakeBoard()
+    on, _, _ = b.frame(0, led=True)
+    off, _, _ = b.frame(0, led=False)
+    cv2.imwrite(str(tmp_path / "wood_on.jpg"), on)
+    cv2.imwrite(str(tmp_path / "wood_off.jpg"), off)
+    out = tmp_path / "wet"
+    assert wet_analyze.main(["--pair", str(tmp_path / "wood_on.jpg"), str(tmp_path / "wood_off.jpg"),
+                             "--wet", ",".join(map(str, WET)), "--dry", ",".join(map(str, DRY)), "--out", str(out)]) == 0
+    r = json.load(open(out / "wood_on.json", encoding="utf-8"))
+    assert r["pairs"] == 1 and r["verdict"] == "VISIBLE"
+    # swapped on/off is flagged
+    res, _ = wet_analyze.analyse_images([(off, on)], WET, DRY, "swapped")
+    assert any("swapped" in w for w in res["warnings"])
+
+
+def test_tof_default_step_is_smallest_gap(tmp_path):
+    for i, h in enumerate([0, 6, 12, 21]):          # household objects, heights measured with a ruler
+        write_tof(tmp_path, "h%02d_b40" % h, 150 - h, 0.8, seed=i)
+    assert analyze_tof.main(["--in", str(tmp_path)]) == 0
+    txt = open(tmp_path / "verdict.md", encoding="utf-8").read()
+    assert "기준 간격: 6 mm" in txt and "PASS" in txt

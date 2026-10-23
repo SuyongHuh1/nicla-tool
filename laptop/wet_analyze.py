@@ -1,7 +1,11 @@
 """Phase 1-6: can the camera see a liquid puddle, and which cue shows it best?
 
-Input: a viewer recording made with the illumination LED alternating
-(viewer.py --illum alt --record), camera and puddle not moving.
+Input, either
+  --pair ON.jpg OFF.jpg   two photos from the same spot, a phone flashlight or
+                          lamp switched on for one and off for the other
+                          (the simple phase-1 way, no extra hardware), or
+  a viewer recording made with the board LED alternating (--illum alt --record).
+Camera and puddle must not move between the photos.
 You mark the puddle (wet) and a patch of clean floor (dry) once:
   py laptop\\wet_analyze.py recordings\\20261023_101500_wood_water --select
 which prints the --wet/--dry values to reuse, e.g.
@@ -76,13 +80,20 @@ def analyse(d, wet, dry, max_pairs=60):
         raise RuntimeError("no LED on/off pairs - record with: viewer.py --illum alt --record")
     step = max(1, len(pairs) // max_pairs)
     pairs = pairs[::step][:max_pairs]
+    imgs = [(read_img(d, a), read_img(d, b)) for a, b in pairs]
+    return analyse_images(imgs, wet, dry, os.path.basename(os.path.normpath(d)))
+
+
+def analyse_images(imgs, wet, dry, name):
+    """imgs: list of (light_on_bgr, light_off_bgr) taken from the same viewpoint."""
     scores = {c: [] for c in CUES}
     cov, on_means, off_means = [], [], []
     last = None
-    for on_r, off_r in pairs:
-        on, off = read_img(d, on_r), read_img(d, off_r)
+    for on, off in imgs:
         if on is None or off is None:
             continue
+        if on.shape != off.shape:
+            raise RuntimeError("on/off images differ in size")
         lon, loff = wetlib.lab(on), wetlib.lab(off)
         on_means.append(float(wetlib.roi(lon[..., 0], dry).mean()))
         off_means.append(float(wetlib.roi(loff[..., 0], dry).mean()))
@@ -95,7 +106,9 @@ def analyse(d, wet, dry, max_pairs=60):
         cov.append(wetlib.coverage(wetlib.roi(dm, wet), wetlib.roi(dm, dry)))
         last = (on, off, dm)
     led_gain = float(np.mean(on_means) - np.mean(off_means))
-    res = {"recording": os.path.basename(os.path.normpath(d)), "pairs": len(cov), "wet": list(wet), "dry": list(dry),
+    if not cov:
+        raise RuntimeError("no readable image pairs")
+    res = {"recording": name, "pairs": len(cov), "wet": list(wet), "dry": list(dry),
            "led_gain_L": round(led_gain, 2),
            "dprime": {c: round(float(np.median(v)), 2) for c, v in scores.items()},
            "coverage": round(float(np.median(cov)), 3)}
@@ -104,7 +117,7 @@ def analyse(d, wet, dry, max_pairs=60):
     res["verdict"] = "VISIBLE" if res["dprime"][best] >= 3 else ("WEAK" if res["dprime"][best] >= 1.5 else "NOT_VISIBLE")
     warn = []
     if led_gain < 0:
-        warn.append("LED-on frames are darker than LED-off: frames are labelled one frame late -> raise 'settle' (viewer key, or ILLUM_SETTLE)")
+        warn.append("light-on images are darker than light-off: on/off swapped, or (LED alt mode) labelled one frame late -> raise 'settle'")
     elif led_gain < 3:
         warn.append("LED barely changes the image (gain %.1f L): LED too weak / pointed away, or ambient light too strong" % led_gain)
     res["warnings"] = warn
@@ -115,7 +128,7 @@ def panel(last, wet, dry):
     on, off, dm = last
     hm = wetlib.heatmap(dm)
     tiles = []
-    for img, title in ((off, "LED off"), (on, "LED on"), (hm, "on - off")):
+    for img, title in ((off, "light off"), (on, "light on"), (hm, "on - off")):
         t = img.copy()
         for r, c in ((wet, (0, 255, 255)), (dry, (255, 255, 0))):
             x, y, w, h = r
@@ -144,13 +157,7 @@ def write_summary(outdir):
         f.write("\n".join(lines) + "\n")
 
 
-def select_rois(d):
-    recs = load_recording(d)
-    pairs = make_pairs(recs)
-    if not pairs:
-        sys.exit("no LED on/off pairs in %s" % d)
-    on = read_img(d, pairs[len(pairs) // 2][0])
-    off = read_img(d, pairs[len(pairs) // 2][1])
+def select_rois(on, off):
     view = np.hstack([on, wetlib.heatmap(wetlib.diff_map(on, off))])
     big = cv2.resize(view, None, fx=2, fy=2, interpolation=cv2.INTER_NEAREST)
     print("drag a box around the PUDDLE (left image), Enter to confirm")
@@ -164,21 +171,39 @@ def select_rois(d):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("recording")
+    ap.add_argument("recording", nargs="?", help="viewer recording folder made with --illum alt")
+    ap.add_argument("--pair", nargs=2, metavar=("ON.jpg", "OFF.jpg"),
+                    help="instead of a recording: one photo with the light (phone flashlight / lamp) on and one with it off")
     ap.add_argument("--wet", type=parse_rect, help="puddle box x,y,w,h (image pixels)")
     ap.add_argument("--dry", type=parse_rect, help="clean floor box x,y,w,h")
     ap.add_argument("--select", action="store_true", help="draw the two boxes with the mouse")
     ap.add_argument("--label", help="result name (default: recording folder name)")
     ap.add_argument("--out", default=os.path.join("results", "wet"))
     a = ap.parse_args(argv)
+    if bool(a.recording) == bool(a.pair):
+        ap.error("give a recording folder or --pair ON.jpg OFF.jpg (one of them)")
+    if a.pair:
+        on, off = (cv2.imread(x, cv2.IMREAD_COLOR) for x in a.pair)
+        if on is None or off is None:
+            ap.error("cannot read %s" % " / ".join(a.pair))
     if a.select:
-        a.wet, a.dry = select_rois(a.recording)
+        if not a.pair:
+            pairs = make_pairs(load_recording(a.recording))
+            if not pairs:
+                sys.exit("no LED on/off pairs in %s" % a.recording)
+            mid = pairs[len(pairs) // 2]
+            on, off = read_img(a.recording, mid[0]), read_img(a.recording, mid[1])
+        a.wet, a.dry = select_rois(on, off)
         print("reuse with: --wet %s --dry %s" % (",".join(map(str, a.wet)), ",".join(map(str, a.dry))))
     if not (a.wet and a.dry):
         ap.error("give --wet and --dry, or use --select")
     os.makedirs(a.out, exist_ok=True)
-    label = a.label or os.path.basename(os.path.normpath(a.recording))
-    res, last = analyse(a.recording, a.wet, a.dry)
+    if a.pair:
+        label = a.label or os.path.splitext(os.path.basename(a.pair[0]))[0]
+        res, last = analyse_images([(on, off)], a.wet, a.dry, label)
+    else:
+        label = a.label or os.path.basename(os.path.normpath(a.recording))
+        res, last = analyse(a.recording, a.wet, a.dry)
     with open(os.path.join(a.out, label + ".json"), "w", encoding="utf-8") as f:
         json.dump(res, f, indent=2, ensure_ascii=False)
     cv2.imwrite(os.path.join(a.out, label + ".png"), panel(last, a.wet, a.dry))

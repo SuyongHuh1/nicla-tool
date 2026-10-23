@@ -34,7 +34,7 @@ py laptop\viewer.py --host 127.0.0.1         # 창 2: 뷰어
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
-| 1 | 하드웨어 검증: 장착 기하, ToF 판별력, 노출 고정, Wi-Fi 송출, 젖은 바닥 가시성 | **진행 중** → [docs/phase1.md](docs/phase1.md) |
+| 1 | 하드웨어 확인 (간략판, 약 2시간): 송출, ToF 높이, 젖은 바닥 | **진행 중** → [docs/phase1.md](docs/phase1.md) |
 | 2 | 모사체 데이터 수집 (뷰어 녹화 기능 사용) | |
 | 3 | 학습: FOMO 검출(분변/액체) + MobileNetV2 굳기 분류(+ToF 특징), 액체는 LED 차분 → [구조](docs/architecture.md) | |
 | 4 | 보드 배포, 인식 결과 오버레이, 자율 정지 | |
