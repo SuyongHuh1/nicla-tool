@@ -10,6 +10,7 @@
 | 1-3 ToF | 5 mm 높이 차이를 구분하나 | `tof_logger.py` + `capture.py` + `analyze_tof.py` | d' ≥ 3 |
 | 1-4 노출 | 조명 고정 시 밝기가 안정적인가 | `exposure_test.py` + `analyze_exposure.py` | 10분 변동 ≤ 5% |
 | 1-5 Wi-Fi | 노트북으로 몇 fps, 지연 얼마로 오나 | `stream_server.py` + `viewer.py` | ≥ 8 fps, 지연 p95 ≤ 300 ms |
+| 1-6 젖은 바닥 | 오줌 웅덩이가 카메라에 보이나, 어떤 단서로 | `viewer.py --illum alt` + `wet_analyze.py` | 차분 d' ≥ 3, 주변 조명 바꿔도 유지 |
 
 차량 제어(UART)는 차량 쪽 보드가 정해진 뒤 추가한다. 지금은 명령이 보드까지 도착하는지(ack)만 확인한다.
 
@@ -23,7 +24,7 @@
    git clone https://github.com/SuyongHuh1/nicla-tool
    cd nicla-tool
    py -m pip install -r laptop\requirements.txt
-   py -m pytest -q tests          # 14 passed 이면 정상
+   py -m pytest -q tests          # 16 passed 이면 정상
    ```
 3. 보드 드라이브(USB로 연결하면 보이는 디스크)에 `nicla\camlib.py`, `nicla\nvproto.py` 복사
 4. `nicla\wifi_config_example.py`를 `wifi_config.py`로 복사해 핫스팟 이름/비밀번호 입력 후 보드 드라이브에 복사
@@ -107,6 +108,64 @@ py laptop\viewer.py --host <IP> --label wifi_q70 --jpeg-q 70 --duration 60
 조종 키(WASD)를 누르면 HUD의 `drive` 값이 바뀌어야 함 (보드까지 명령 도착 확인).
 
 **판정**: 8 fps 이상, 지연 p95 300 ms 이하인 품질 중 가장 높은 값 채택. 미달이면 QQVGA(160×120) 송출 검토.
+
+## 1-6. 젖은 바닥(오줌) 가시성
+
+**문제**: 오줌은 색 대비가 약하고 높이가 없어서, 일반 카메라에는 주로 **빛 반사**로만 보인다. 반사는 주변 조명에 크게 좌우된다.
+**해결 아이디어**: 보조 LED를 프레임마다 켜고 끈다. 주변광은 두 프레임에 똑같이 들어가므로 `켬 − 끔`을 빼면 **우리 LED가 만든 빛만 남는다**. 젖은 막은 LED를 반짝 반사(정반사)하고, 마른 바닥은 고르게 조금 밝아질 뿐이다.
+
+![sim](wet_preview_sim.png)
+*시뮬레이터 예시: 왼쪽(LED 끔)에선 노란 박스 안 웅덩이가 거의 안 보이고, 오른쪽 차분 영상에선 뚜렷하다. 움직이는 물체는 차분 영상에서 테두리가 생긴다(아래 "움직임" 참고).*
+
+### 준비물
+
+| 부품 | 용도 | 비고 |
+|---|---|---|
+| 고휘도 백색 LED 모듈 (1~3 W) | 보조 조명 | 렌즈 옆, 바닥을 비스듬히 비추도록 |
+| 로직레벨 N-MOSFET (예: AO3400, IRLZ44N) + 저항 100 Ω / 10 kΩ | 보드 핀으로 LED 켜고 끄기 | **D0 핀은 수 mA만 나옴. LED 직결 금지** |
+| 선형 편광 필름 2장 | 반사 강조 (선택) | LED 앞 1장, 카메라 렌즈 앞 1장 |
+| 물 + 노란 식용색소, 스포이트 | 모사 소변 | 웅덩이 지름 3~8 cm |
+| 바닥재 2종 이상 | 장판/마루, 흰 타일 | |
+
+배선: `D0 → 100 Ω → MOSFET 게이트`, `게이트 → 10 kΩ → GND`, `LED(+) → 5 V (Nicla가 아닌 별도 전원: 차량 배터리 레귤레이터 등)`, `LED(−) → MOSFET 드레인`, `소스 → GND`. LED 모듈에 전류 제한이 없으면 직렬 저항 필요. Nicla GND와 LED 전원 GND는 공통으로.
+
+### 보드 설정 (`stream_server.py` 상단)
+- `ILLUM_PIN = "D0"` (D1/D2는 나중에 차량 UART용으로 비워 둠)
+- `LOCK_WITH_ILLUM = True`: LED 켠 상태로 노출을 정해서 켠 프레임이 하얗게 날아가지 않게 함
+- `FLICKER_SAFE = True`: 노출 시간을 형광등·LED 조명 깜빡임 주기(8.33 ms)의 정수배로 맞춤. 이게 꺼져 있으면 실내 조명 깜빡임이 차분 영상에 줄무늬 노이즈로 남음
+
+### 절차
+조건마다 카메라와 웅덩이를 **고정한 채로** 10초 녹화:
+```
+py laptop\viewer.py --host <IP> --illum alt --record --duration 10 --label wood_water_room
+```
+뷰어에서 **V** 키를 누르면 차분 영상을 실시간으로 볼 수 있다. 웅덩이가 밝게 떠야 정상.
+
+| 조건 | 바닥 | 액체 | 주변 조명 | LED 각도 | 편광 |
+|---|---|---|---|---|---|
+| 기본 | 마루, 타일 | 노란 물 | 실내등 켬 | 30°, 60° | 없음 |
+| 조명 강건성 | 마루 | 노란 물 | **끔 / 켬 / 창가 햇빛** | 좋았던 각도 | 없음 |
+| 편광 | 마루 | 노란 물 | 실내등 | 좋았던 각도 | 있음 |
+| 마른 얼룩 | 마루 | 물 마른 자국 | 실내등 | 좋았던 각도 | 좋았던 쪽 |
+| 대조군 | 마루 | **없음** | 실내등 | 좋았던 각도 | 좋았던 쪽 |
+
+라벨 예: `wood_water_room_a30`, `wood_water_dark_a30`, `tile_water_sun_a60_pol`, `wood_none_room_a30`
+
+분석 (처음 한 번은 마우스로 영역 지정, 이후 같은 값 재사용):
+```
+py laptop\wet_analyze.py recordings\<폴더> --select
+py laptop\wet_analyze.py recordings\<폴더> --wet x,y,w,h --dry x,y,w,h
+```
+→ `results\wet\summary.md`: 조건별로 5가지 단서(LED 끔 밝기, 노란색, LED 켬 밝기, 차분, 정규화 차분)의 d'와 커버리지
+
+### 판정
+- **채택**: 차분 d' ≥ 3이 **세 가지 주변 조명 모두에서** 유지되고, 대조군(웅덩이 없음)에선 그 영역이 안 뜸 → 2단계에서 "액체" 클래스 데이터 수집
+- **조건부**: 타일에서만 보이거나 특정 LED 각도에서만 보임 → 시연 바닥을 한정하거나 편광 추가
+- **포기/대안**: 어디서도 d' < 1.5 → 카메라로는 어려움. 열화상 센서(갓 눈 오줌만) 등 별도 센서 검토
+- 경고 "settle을 올려라"가 나오면 LED 전환과 촬영 사이 지연 때문: 뷰어 실행 중 `ILLUM_SETTLE`을 2로
+
+### 움직임 주의
+차분은 두 프레임 사이에 카메라나 물체가 움직이면 테두리가 생긴다(위 그림의 갈색 물체). 1-6은 정지 상태에서만 측정하고, 주행 중 적용 방법(정렬 보정, 저속 구간에서만 판단)은 4단계에서 다룬다. → [architecture.md](architecture.md)
 
 ---
 

@@ -254,3 +254,78 @@ def test_board_loggers_match_capture(script, prefix, ncols):
     rows = [capture.parse_line(ln, prefix, ncols) for ln in out.splitlines()]
     rows = [r for r in rows if r]
     assert len(rows) >= 3, out
+
+
+# ------------------------------------------------------- wet floor (1-6)
+import wet_analyze  # noqa: E402
+
+WET = (40, 176, 60, 28)
+DRY = (200, 198, 60, 25)
+
+
+def start_fake(fps=20.0):
+    stop, ready, port = threading.Event(), [], free_port()
+    th = threading.Thread(target=fake_nicla.run_server, args=("127.0.0.1", port, fps, stop, ready), daemon=True)
+    th.start()
+    for _ in range(50):
+        if ready:
+            break
+        time.sleep(0.05)
+    return port, stop
+
+
+def test_wet_pipeline_on_simulated_puddle(tmp_path):
+    port, stop = start_fake()
+    try:
+        run_viewer_headless(port, tmp_path, seconds=4.0, extra=("--record", "--illum", "alt"))
+    finally:
+        stop.set()
+    rec = os.path.join(tmp_path, "recordings", os.listdir(tmp_path / "recordings")[0])
+    out = tmp_path / "wet"
+    assert wet_analyze.main([rec, "--wet", ",".join(map(str, WET)), "--dry", ",".join(map(str, DRY)),
+                             "--label", "sim", "--out", str(out)]) == 0
+    r = json.load(open(out / "sim.json", encoding="utf-8"))
+    assert r["pairs"] >= 10 and r["led_gain_L"] > 3 and not r["warnings"]
+    assert r["verdict"] == "VISIBLE" and r["best_cue"] in ("diff", "ndiff", "lit_L")
+    assert r["dprime"]["diff"] > 3 * max(r["dprime"]["plain_L"], 0.3)   # the LED cue beats the plain camera
+    assert (out / "sim.png").exists() and "sim" in open(out / "summary.md", encoding="utf-8").read()
+
+    # frames labelled one frame late (sensor lag) must be flagged
+    meta = os.path.join(rec, "meta.jsonl")
+    lines = [json.loads(x) for x in open(meta, encoding="utf-8")]
+    for x in lines:
+        x["hdr"]["led"] = 1 - x["hdr"]["led"]
+    with open(meta, "w", encoding="utf-8") as f:
+        f.write("\n".join(json.dumps(x) for x in lines) + "\n")
+    res, _ = wet_analyze.analyse(rec, WET, DRY)
+    assert any("settle" in w for w in res["warnings"])
+
+
+def test_board_alternating_led_under_shim():
+    port = free_port()
+    proc = subprocess.Popen([PY, os.path.join(ROOT, "tests", "run_board_script.py"),
+                             os.path.join(ROOT, "nicla", "stream_server.py"), str(port)],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    try:
+        sock = None
+        for _ in range(100):
+            try:
+                sock = nvlink.connect("127.0.0.1", port, timeout=2)
+                break
+            except OSError:
+                time.sleep(0.1)
+        assert sock is not None
+        sock.sendall(nvlink.encode_cmd({"t": "set", "key": "illum", "val": "alt", "seq": 1}))
+        means = {0: [], 1: []}
+        for _ in range(16):
+            h, jpg = nvlink.read_message(sock)
+            img = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+            if h["illum"] == "alt":
+                means[h["led"]].append(img.mean())
+        assert len(means[0]) >= 4 and len(means[1]) >= 4
+        assert np.mean(means[1]) > np.mean(means[0]) + 5
+        sock.close()
+    finally:
+        proc.kill()
+        out = proc.communicate()[0]
+    assert "Traceback" not in out, out
