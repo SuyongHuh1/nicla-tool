@@ -41,7 +41,7 @@ DEMO_BLOBS = True           # phase-1 stand-in detector
 BLOB_LAB = (0, 45, 0, 35, 0, 45)
 BLOB_MIN_PIXELS = 120
 # Illumination LED for wet-floor (urine) detection - see docs/phase1.md 1-6.
-ILLUM_PIN = None            # phase 1 uses a phone flashlight instead. With an LED circuit: "D0"
+ILLUM_PIN = None            # experiment C uses a phone flashlight. With the D breadboard LED circuit: "D0"
 ILLUM_MODE = "off"          # "off" | "on" | "alt" (toggle every frame -> on/off pairs)
 ILLUM_SETTLE = 1            # frames discarded after switching (sensor pipeline lag)
 LOCK_WITH_ILLUM = True      # set exposure with the LED on, so lit frames don't saturate
