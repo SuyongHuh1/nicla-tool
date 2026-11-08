@@ -67,7 +67,13 @@ def wifi_up():
     mode = getattr(cfg, "WIFI_MODE", "sta")
     if mode == "ap":
         wlan = network.WLAN(network.AP_IF)
-        wlan.config(ssid=cfg.AP_SSID, key=cfg.AP_PASS)
+        # OpenMV 4.3.x used ``essid/password`` while newer MicroPython WLAN
+        # builds use ``ssid/key``.  Nicla boards in the field can have either
+        # firmware, so keep both spellings instead of forcing a firmware flash.
+        try:
+            wlan.config(ssid=cfg.AP_SSID, key=cfg.AP_PASS)
+        except (TypeError, ValueError):
+            wlan.config(essid=cfg.AP_SSID, password=cfg.AP_PASS)
         wlan.active(True)
     else:
         wlan = network.WLAN(network.STA_IF)
