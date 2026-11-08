@@ -5,7 +5,7 @@
 Keys
   W A S D   drive (hold)          SPACE  stop
   + / -     drive speed           1 2 3  mode manual / assist / auto
-  [ / ]     JPEG quality -/+      B      toggle demo blob detector
+  [ / ]     JPEG quality -/+      B      toggle active detector
   R         start/stop recording  C      save current frame to captures/
   L         illumination LED: off -> on -> alt (alternate every frame)
   V         view: camera / LED on-off difference (needs alt; shows wet glints)
@@ -33,6 +33,7 @@ import nvlink
 
 GRADE_COLORS = {0: (60, 200, 60), 1: (0, 220, 255), 2: (0, 140, 255), 3: (40, 40, 230)}   # BGR
 GRADE_NAMES = {0: "hard", 1: "normal", 2: "soft", 3: "liquid"}
+CLASS_COLORS = {"stool": (0, 140, 255), "urine": (255, 255, 0), "blob": (255, 0, 255)}
 DRIVE_HOLD_S = 0.25
 CMD_RATE_HZ = 10
 
@@ -48,7 +49,7 @@ def pct(vals, q):
 class Link:
     """Owns the socket: background receive thread + thread-safe command sending."""
 
-    def __init__(self, sock, record_root="recordings", label="session"):
+    def __init__(self, sock, record_root="recordings", label="session", session_meta=None):
         self.sock = sock
         self.sock.settimeout(5.0)
         self.send_lock = threading.Lock()
@@ -69,6 +70,7 @@ class Link:
         self.last_ack = None
         self.record_root = record_root
         self.label = label
+        self.session_meta = session_meta or {}
         self.rec_dir = None
         self.rec_meta = None
         self.rec_count = 0
@@ -140,6 +142,11 @@ class Link:
             return "stopped (%d frames) %s" % (self.rec_count, path)
         d = os.path.join(self.record_root, time.strftime("%Y%m%d_%H%M%S") + "_" + self.label)
         os.makedirs(os.path.join(d, "frames"), exist_ok=True)
+        if self.session_meta:
+            meta = dict(self.session_meta)
+            meta["created_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+            with open(os.path.join(d, "session.json"), "w", encoding="utf-8") as f:
+                json.dump(meta, f, ensure_ascii=False, indent=2)
         self.rec_meta = open(os.path.join(d, "meta.jsonl"), "a", encoding="utf-8")
         self.rec_count = 0
         self.rec_dir = d
@@ -179,7 +186,7 @@ def draw_overlay(img, hdr, scale=1.0):
     import cv2
     for d in hdr.get("det", []) or []:
         grade = d.get("grade")
-        color = GRADE_COLORS.get(grade, (255, 0, 255))
+        color = GRADE_COLORS.get(grade, CLASS_COLORS.get(d.get("cls"), (255, 0, 255)))
         if "contour" in d and d["contour"]:
             pts = (np.array(d["contour"], np.float32) * scale).astype(np.int32)
             cv2.polylines(img, [pts], True, color, 2, cv2.LINE_AA)
@@ -191,6 +198,8 @@ def draw_overlay(img, hdr, scale=1.0):
         if "cx" in d:
             cv2.circle(img, (int(d["cx"] * scale), int(d["cy"] * scale)), 4, color, -1)
         parts = [GRADE_NAMES.get(grade, d.get("cls", "obj"))]
+        if d.get("refined") is False:
+            parts.append("ROI")
         if d.get("conf") is not None:
             parts.append("%.0f%%" % (100 * d["conf"]))
         if d.get("area_mm2") is not None:
@@ -226,7 +235,8 @@ def hud_lines(link, hdr, speed, recording, show_help):
     tof = hdr.get("tof_mm")
     lines = ["fps board %.1f | lat %s ms | rtt %s ms | q %s" % (hdr.get("fps", 0), "%.0f" % lat if lat is not None else "-",
                                                               "%.0f" % rtt if rtt is not None else "-", hdr.get("q", "-")),
-             "ToF %s mm | det %d | mode %s" % (tof if tof is not None else "-", len(hdr.get("det", []) or []), hdr.get("mode", "?")),
+             "ToF %s mm | det %d | %s | mode %s" % (tof if tof is not None else "-", len(hdr.get("det", []) or []),
+                                                     hdr.get("detector", "?"), hdr.get("mode", "?")),
              "vehicle %s | drive %s | speed %d%%" % (hdr.get("vehicle", "?"), hdr.get("drive"), speed),
              "illum %s | led %s" % (hdr.get("illum", "-"), hdr.get("led", "-"))]
     if recording:
@@ -249,6 +259,13 @@ def main(argv=None):
     ap.add_argument("--record", action="store_true", help="start recording immediately")
     ap.add_argument("--jpeg-q", type=int, help="ask the board for this JPEG quality at start")
     ap.add_argument("--illum", choices=("off", "on", "alt"), help="set the illumination LED mode at start")
+    ap.add_argument("--target", choices=("stool", "urine", "background", "mixed"),
+                    help="main content of this data collection session")
+    ap.add_argument("--floor", help="floor material/id, e.g. wood_a")
+    ap.add_argument("--lighting", help="lighting condition, e.g. room_on")
+    ap.add_argument("--camera-height-mm", type=float)
+    ap.add_argument("--camera-tilt-deg", type=float)
+    ap.add_argument("--mount-id", help="identifier for a fixed camera mounting setup")
     ap.add_argument("--out", default="results")
     a = ap.parse_args(argv)
 
@@ -256,7 +273,11 @@ def main(argv=None):
         sock = nvlink.connect(a.host, a.port)
     except OSError as e:
         sys.exit("cannot connect to %s:%d (%s). Same Wi-Fi? stream_server.py running?" % (a.host, a.port, e))
-    link = Link(sock, record_root="recordings", label=a.label)
+    session_meta = {"label": a.label, "target": a.target, "floor": a.floor,
+                    "lighting": a.lighting, "camera_height_mm": a.camera_height_mm,
+                    "camera_tilt_deg": a.camera_tilt_deg, "mount_id": a.mount_id}
+    session_meta = {k: v for k, v in session_meta.items() if v is not None}
+    link = Link(sock, record_root="recordings", label=a.label, session_meta=session_meta)
     print("connected to %s:%d" % (a.host, a.port))
     if a.jpeg_q:
         link.send({"t": "set", "key": "jpeg_q", "val": a.jpeg_q})

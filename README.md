@@ -20,6 +20,8 @@ Arduino Nicla Vision으로 바닥의 분변을 찾아 굳기(점성)를 판별�
 | `laptop/` | 노트북용 Python: 측정 기록, 분석, 캘리브레이션, 뷰어, 보드 시뮬레이터 |
 | `tests/` | 보드 모듈을 흉내 내 보드 스크립트까지 PC에서 검증하는 테스트 |
 | `docs/` | [1단계 실험 절차](docs/phase1.md), [준비물](docs/parts.md), [인식 구조](docs/architecture.md), [통신 규약](docs/protocol.md) |
+| `datasets/` | FOMO 데이터와 필요 시 ROI 세그멘테이션 데이터를 준비하는 작업 공간 |
+| `models/` | FOMO 모델 배포 방법과 로컬 모델 보관 위치 |
 | `results/` | 측정 결과 (git에 올림) |
 
 ## 빠른 시작 (보드 없이)
@@ -41,3 +43,11 @@ py laptop\viewer.py --host 127.0.0.1         # 창 2: 뷰어
 | 5 | 실환경 평가 (정확도, 종단 지연, 정지 거리) | |
 
 차량 제어는 차량 쪽 코드가 정해지면 `nicla/stream_server.py`의 `vehicle_send()`에 연결한다.
+
+## TinyML + ROI 작업 브랜치
+
+FOMO가 `stool`/`urine` 중심을 먼저 찾고, 중심 주변 ROI에서 청소 영역을
+추정하는 코드와 데이터 폴더가 추가돼 있다. 모델이 설치되지 않은 `auto`
+모드에서는 기존 LAB 데모 검출로 폴백하므로, 뷰어 HUD의 detector 이름을
+반드시 확인한다. 수집 조건과 색상 검출/세그멘테이션 전환 기준은
+[TinyML + ROI 가이드](docs/tinyml_roi.md)에 정리돼 있다.

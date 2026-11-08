@@ -27,6 +27,7 @@ TCP, 보드가 서버(포트 5005), 노트북이 클라이언트. 동시에 한 
 | `mem` | 30프레임마다: 남은 RAM |
 | `led` | 이 프레임을 찍을 때 보조 LED가 켜져 있었나 (1/0) |
 | `illum` | LED 모드 off / on / alt (LED가 없으면 `none`) |
+| `detector` | 실제 활성 검출기 (`tinyml_roi`, `color_demo`, `simulated` 등) |
 | `ack` / `pong` / `err` | 명령 응답 (해당 프레임에만) |
 
 검출 항목 (`det`의 원소) — 있는 키만 그린다
@@ -37,7 +38,12 @@ TCP, 보드가 서버(포트 5005), 노트북이 클라이언트. 동시에 한 
 | `bbox` | 1 | [x, y, w, h] 픽셀 |
 | `cx`, `cy` | 1 | 중심 |
 | `px` | 1 | 픽셀 면적 |
-| `conf` | 4 | 신뢰도 0~1 |
+| `fomo_bbox` | 2 | FOMO 후처리가 돌려준 중심 셀 주변 박스 |
+| `roi` | 2 | 클래스별 영역 정제를 시도한 ROI |
+| `source` | 2 | 1차 검출 출처 (`fomo`, `lab_demo`) |
+| `region_source` | 2 | 최종 bbox 출처 (`lab`, `fomo_roi`, 이후 `led_diff`/`segmentation`) |
+| `refined` | 2 | ROI 안에서 실제 영역을 찾았는지 여부 |
+| `conf` | 2 | 1차 검출 신뢰도 0~1 |
 | `grade` | 4 | 굳기 0=단단 1=정상 2=무름 3=물변 |
 | `area_mm2` | 4 | 바닥 기준 실제 면적 |
 | `height_mm` | 4 | ToF 기반 높이 |

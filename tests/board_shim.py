@@ -58,14 +58,21 @@ class Image:
         ok, j = cv2.imencode(".jpg", self.bgr, [cv2.IMWRITE_JPEG_QUALITY, int(quality)])
         return _Jpeg(j.tobytes())
 
-    def find_blobs(self, thresholds, pixels_threshold=10, area_threshold=10, merge=False):
-        lab = cv2.cvtColor(self.bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+    def find_blobs(self, thresholds, roi=None, pixels_threshold=10, area_threshold=10, merge=False):
+        x0, y0, rw, rh = roi or (0, 0, self.width(), self.height())
+        lab = cv2.cvtColor(self.bgr[y0:y0 + rh, x0:x0 + rw], cv2.COLOR_BGR2LAB).astype(np.float32)
         L = lab[..., 0] * 100 / 255
-        lmin, lmax = thresholds[0][0], thresholds[0][1]
-        mask = ((L >= lmin) & (L <= lmax)).astype(np.uint8)
+        A, B = lab[..., 1] - 128, lab[..., 2] - 128
+        mask = np.zeros(L.shape, np.uint8)
+        for threshold in thresholds:
+            lmin, lmax, amin, amax, bmin, bmax = threshold
+            mask |= ((L >= lmin) & (L <= lmax) & (A >= amin) & (A <= amax)
+                     & (B >= bmin) & (B <= bmax)).astype(np.uint8)
         n, _, st, c = cv2.connectedComponentsWithStats(mask)
-        return [_Blob(int(st[i][0]), int(st[i][1]), int(st[i][2]), int(st[i][3]), int(c[i][0]), int(c[i][1]), int(st[i][4]))
-                for i in range(1, n) if st[i][4] >= pixels_threshold]
+        return [_Blob(int(st[i][0] + x0), int(st[i][1] + y0), int(st[i][2]), int(st[i][3]),
+                      int(c[i][0] + x0), int(c[i][1] + y0), int(st[i][4]))
+                for i in range(1, n) if st[i][4] >= pixels_threshold
+                and st[i][2] * st[i][3] >= area_threshold]
 
     def get_statistics(self, roi=None):
         x, y, w, h = roi or (0, 0, self.width(), self.height())
