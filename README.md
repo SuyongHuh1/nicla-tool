@@ -32,6 +32,15 @@ py laptop\fake_nicla.py                      # 창 1: 가짜 보드
 py laptop\viewer.py --host 127.0.0.1         # 창 2: 뷰어
 ```
 
+실제 Nicla를 USB로 연결해 Wi-Fi 전환 없이 카메라 화면을 확인하려면
+`nicla/usb_preview.py`를 보드 드라이브에 복사한 뒤 실행한다.
+
+```powershell
+.\.venv\Scripts\python.exe laptop\usb_viewer.py
+```
+
+미리보기 창에서 `C`는 현재 프레임 저장, `Q` 또는 `Esc`는 종료다.
+
 ## 진행 단계
 
 | 단계 | 내용 | 상태 |
