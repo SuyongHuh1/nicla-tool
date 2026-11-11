@@ -1,0 +1,72 @@
+{
+  "dataset_version": "v1",
+  "model": {
+    "path": "models/fomo_stool_v1.tflite",
+    "labels": "models/fomo_stool_v1_labels.txt",
+    "bytes": 18672,
+    "sha256": "c2af1df98479dc69bf6f3a039bcff577793f11a0d0873c8eeda021818644b3fe",
+    "input_shape": [1, 96, 96, 3],
+    "output_shape": [1, 12, 12, 2],
+    "quantization": "uint8 int8-quantized TFLite"
+  },
+  "training": {
+    "architecture": "tiny",
+    "epochs_requested": 30,
+    "seed": 20261109,
+    "augmentation": "default",
+    "classes": ["background", "stool"],
+    "group_field": "shape_id",
+    "fixed_split": {
+      "train": ["S01", "S02", "S03", "S04"],
+      "validation": ["S05"],
+      "test": ["S06"]
+    }
+  },
+  "augmentation_cross_validation": {
+    "method": "six-fold leave-one-stool-out with a separate validation group",
+    "none": {
+      "mean_f1": 0.9142195767195768,
+      "worst_fold_f1": 0.825
+    },
+    "mild": {
+      "mean_f1": 0.9331852444866144,
+      "worst_fold_f1": 0.861111111111111
+    },
+    "default": {
+      "mean_f1": 0.9328636803988918,
+      "worst_fold_f1": 0.861111111111111
+    },
+    "selected": "default"
+  },
+  "fixed_test": {
+    "selected_threshold": 0.6,
+    "precision": 0.9166666666666666,
+    "recall": 0.9705882352941176,
+    "f1": 0.9428571428571428,
+    "exact_count_rate": 0.9411764705882353
+  },
+  "independent_evaluation": {
+    "images": 15,
+    "ground_truth_objects": 19,
+    "tp": 19,
+    "fp": 5,
+    "fn": 0,
+    "precision": 0.7916666666666666,
+    "recall": 1.0,
+    "f1": 0.8837209302325582,
+    "exact_count_images": 10
+  },
+  "clean_worktree_reproduction_check": {
+    "date": "2026-11-11",
+    "completed": true,
+    "tflite_conversion": "resource variables frozen before calibration",
+    "model_bytes": 18672,
+    "selected_threshold": 0.4,
+    "fixed_test_f1": 0.9166666666666667,
+    "independent_tp": 19,
+    "independent_fp": 4,
+    "independent_fn": 0,
+    "independent_f1": 0.9047619047619047,
+    "note": "Training is seeded but native Windows TensorFlow/oneDNN can produce small run-to-run differences."
+  }
+}

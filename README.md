@@ -60,3 +60,30 @@ FOMO가 `stool`/`urine` 중심을 먼저 찾고, 중심 주변 ROI에서 청소 
 모드에서는 기존 LAB 데모 검출로 폴백하므로, 뷰어 HUD의 detector 이름을
 반드시 확인한다. 수집 조건과 색상 검출/세그멘테이션 전환 기준은
 [TinyML + ROI 가이드](docs/tinyml_roi.md)에 정리돼 있다.
+
+## 재현용 분변 FOMO v1
+
+학습·평가에 필요한 최종 데이터만
+[`datasets/stool_public/v1`](datasets/stool_public/v1/README.md)에 독립적으로
+정리했다. 학습 원본 195장과 최종 mask·label, 학습에 사용하지 않은 독립 평가
+15장, SHA-256 체크섬과 데이터 카드를 포함한다. 중간 AI 결과, 미리보기,
+검수 백업, checking 중복 사본은 포함하지 않는다.
+
+Windows PowerShell에서 다음 명령으로 환경 구성부터 최종 모델·평가 결과까지
+재현할 수 있다.
+
+```powershell
+.\setup_training_windows.ps1
+.\reproduce_stool_v1.ps1
+```
+
+`none`, `mild`, `default` 증강을 6개 분변 집단에 대해 모두 6-fold로 비교하려면:
+
+```powershell
+.\reproduce_stool_v1.ps1 -RunCrossValidation
+```
+
+재현 스크립트는 데이터 체크섬을 먼저 검증하고 공개 데이터는 수정하지 않는다.
+모든 생성물은 Git에서 제외된 `training_runs/<실행명>/`에 저장된다. 기준 모델과
+평가값은 각각 `models/fomo_stool_v1.tflite`와
+`reports/stool_fomo_v1_reference.json`에 있다.

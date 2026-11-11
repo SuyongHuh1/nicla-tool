@@ -15,3 +15,14 @@ build OpenMV firmware with the model embedded and set `FOMO_MODEL_PATH` in
 The board header reports `detector=tinyml_roi` only when the model loaded. In
 `auto` mode it reports `color_demo` when it fell back to the phase-1 LAB test.
 
+## Reproducible stool-only v1 model
+
+- `fomo_stool_v1.tflite`: 96x96 int8 Tiny CNN-FOMO, 18,672 bytes
+- `fomo_stool_v1_labels.txt`: `background`, `stool`
+
+The versioned artifact was trained from `datasets/stool_public/v1` and is
+described by `reports/stool_fomo_v1_reference.json`. Rebuild it with
+`reproduce_stool_v1.ps1`. To try it on the board, copy the model as
+`fomo_stool.tflite` and copy the label file as `labels.txt`; do not confuse it
+with a future three-class stool+urine model.
+

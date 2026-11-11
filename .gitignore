@@ -14,7 +14,10 @@ datasets/fomo/manifest.jsonl
 datasets/segmentation/images/
 datasets/segmentation/masks/
 datasets/segmentation/manifest.jsonl
+datasets/stool/
+training_runs/
 
 # Exported models are copied to the Nicla drive or baked into firmware.
 models/*.tflite
+!models/fomo_stool_v1.tflite
 nicla/*.tflite
