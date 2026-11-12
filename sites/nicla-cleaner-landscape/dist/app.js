@@ -2,17 +2,23 @@ const targets = {
   "S-01": {
     type: "stool", name: "분변 #1", icon: "S1", tag: "우선 대상",
     confidenceLabel: "모델 신뢰도", confidence: 91,
-    position: "왼쪽 42mm · 앞 183mm", size: "68 × 35mm", stability: "5/5 프레임"
+    position: "왼쪽 42mm · 앞 183mm", size: "68 × 35mm", stability: "5/5 프레임",
+    priority: "1순위 이동 계획", planTitle: "분변 #1 중심 정렬", turn: "↺ 8°", drive: "↑ 183mm", clean: "롤러 1회",
+    nextAction: "좌회전 8°", strategy: "중심을 롤러 폭에 맞춘 뒤 직선 접근하여 수거합니다.", routeLegend: "1순위 접근 · 이후 #2"
   },
   "S-02": {
     type: "stool", name: "분변 #2", icon: "S2", tag: "대기 대상",
     confidenceLabel: "모델 신뢰도", confidence: 87,
-    position: "오른쪽 65mm · 앞 224mm", size: "51 × 29mm", stability: "4/5 프레임"
+    position: "오른쪽 65mm · 앞 224mm", size: "51 × 29mm", stability: "4/5 프레임",
+    priority: "2순위 이동 계획", planTitle: "분변 #2 중심 정렬", turn: "↻ 12°", drive: "↑ 224mm", clean: "롤러 1회",
+    nextAction: "우회전 12°", strategy: "1번 처리 후 재탐색하고, 가장 짧은 안전 경로로 접근합니다.", routeLegend: "2순위 접근 경로"
   },
   "U-01": {
     type: "urine", name: "소변 후보", icon: "U?", tag: "학습 데이터 필요",
     confidenceLabel: "영역 후보 점수", confidence: 64,
-    position: "오른쪽 118mm · 앞 146mm", size: "92 × 46mm", stability: "3/5 프레임"
+    position: "오른쪽 118mm · 앞 146mm", size: "92 × 46mm", stability: "3/5 프레임",
+    priority: "3순위 · 학습 전 전략 예시", planTitle: "넓은 영역 지그재그 청소", turn: "↻ 영역 진입", drive: "3개 레인", clean: "2회 왕복",
+    nextAction: "우측부터 3열", strategy: "영역 폭을 3개 레인으로 나눠 25% 겹치며 왕복합니다.", routeLegend: "소변 영역 · 3열 왕복"
   }
 };
 
@@ -46,19 +52,20 @@ function selectTarget(id) {
   selectedTarget = id;
 
   $$(".detection").forEach(el => el.classList.toggle("selected", el.dataset.target === id));
-  $("#targetName").textContent = target.name;
-  $("#targetIcon").textContent = target.icon;
-  $("#targetIcon").className = `target-icon ${target.type === "urine" ? "urine-icon" : "stool-icon"}`;
-  $("#targetTag").textContent = target.tag;
-  $("#confidenceLabel").textContent = target.confidenceLabel;
-  $("#confidenceValue").textContent = `${target.confidence}%`;
-  $("#confidenceBar").style.width = `${target.confidence}%`;
-  $("#targetPosition").textContent = target.position;
-  $("#targetSize").textContent = target.size;
-  $("#targetStability").innerHTML = `<span class="good-dot"></span>${target.stability}`;
+  $$(".priority-item").forEach(el => el.classList.toggle("active", el.dataset.target === id));
   $("#stageTarget").textContent = target.name;
   $("#stagePosition").textContent = target.position.replace(" · ", " · ");
-  $("#stageStability").textContent = target.stability;
+  $("#stageStability").textContent = target.nextAction;
+  $("#planPriority").textContent = target.priority;
+  $("#planTitle").textContent = target.planTitle;
+  $("#planConfidence").textContent = target.type === "urine" ? "후보" : `${target.confidence}%`;
+  $("#planTurn").textContent = target.turn;
+  $("#planDrive").textContent = target.drive;
+  $("#planClean").textContent = target.clean;
+  $("#planStrategy").textContent = target.strategy;
+  $("#routeLegend").textContent = target.routeLegend;
+  $("#motionCard").classList.toggle("urine-plan", target.type === "urine");
+  $("#cameraStage").dataset.target = id;
 }
 
 function updatePhase() {
@@ -71,8 +78,14 @@ function updatePhase() {
     completed = 1;
     $("#doneCount").textContent = "1";
     $("#stoolCount").textContent = "1";
-    document.querySelector('[data-target="S-01"]').classList.add("processed");
   }
+
+  const firstTargetComplete = phaseIndex >= 3;
+  const firstDetection = document.querySelector('.detection[data-target="S-01"]');
+  const firstPriority = document.querySelector('.priority-item[data-target="S-01"]');
+  firstDetection.classList.toggle("processed", firstTargetComplete);
+  firstPriority.classList.toggle("completed", firstTargetComplete);
+  firstPriority.querySelector("i").textContent = firstTargetComplete ? "✓" : "1";
 
   const order = ["search", "align", "collect", "verify"];
   let activeIndex = order.indexOf(phase.key);
@@ -117,6 +130,7 @@ function setLayer(layer, enabled) {
 }
 
 $$('.detection').forEach(button => button.addEventListener('click', () => selectTarget(button.dataset.target)));
+$$('.priority-item').forEach(button => button.addEventListener('click', () => selectTarget(button.dataset.target)));
 
 $$('.layer-switch button').forEach(button => {
   button.addEventListener('click', () => {
@@ -145,7 +159,6 @@ $("#primaryAction").addEventListener("click", () => {
     completed = 0;
     $("#doneCount").textContent = "0";
     $("#stoolCount").textContent = "2";
-    document.querySelector('[data-target="S-01"]').classList.remove("processed");
   }
   updatePhase();
 });

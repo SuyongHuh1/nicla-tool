@@ -70,10 +70,35 @@
           <div class="roller-reference">
             <span>ROLLER</span>
           </div>
+          <div class="robot-origin" aria-label="로봇과 롤러의 현재 위치"><span>◉</span><b>ROBOT</b><small>ROLLER</small></div>
           <div class="guideline vertical"></div>
           <div class="guideline horizontal"></div>
 
+          <svg class="motion-plan" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-label="로봇 이동 및 청소 계획">
+            <defs>
+              <marker id="routeArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z"></path>
+              </marker>
+              <marker id="urineArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z"></path>
+              </marker>
+            </defs>
+            <g class="route-group route-s1">
+              <path class="route-path primary-route" d="M500 520 C500 455 520 320 555 225"></path>
+              <path class="route-path future-route" d="M555 225 C470 255 350 305 250 335"></path>
+            </g>
+            <g class="route-group route-s2">
+              <path class="route-path primary-route" d="M500 520 C430 485 325 410 245 345"></path>
+            </g>
+            <g class="route-group route-urine">
+              <path class="route-path urine-approach" d="M500 520 C590 505 660 465 700 430"></path>
+              <path class="coverage-route" d="M700 382 L820 382 L820 413 L700 413 L700 444 L825 444"></path>
+            </g>
+          </svg>
+          <div class="route-legend"><i></i><span id="routeLegend">1순위 접근 경로</span></div>
+
           <button class="detection stool selected" data-target="S-01" style="--x: 56%; --y: 34%; --w: 18%; --h: 23%;">
+            <span class="priority-badge">1</span>
             <span class="fomo-cell"></span>
             <span class="roi-box"></span>
             <span class="object-shape shape-one"></span>
@@ -81,6 +106,7 @@
           </button>
 
           <button class="detection stool" data-target="S-02" style="--x: 24%; --y: 56%; --w: 14%; --h: 17%;">
+            <span class="priority-badge">2</span>
             <span class="fomo-cell"></span>
             <span class="roi-box"></span>
             <span class="object-shape shape-two"></span>
@@ -88,6 +114,7 @@
           </button>
 
           <button class="detection urine pending" data-target="U-01" style="--x: 76%; --y: 67%; --w: 17%; --h: 14%;">
+            <span class="priority-badge urine-priority">3</span>
             <span class="fomo-cell"></span>
             <span class="roi-box"></span>
             <span class="object-shape shape-urine"></span>
@@ -100,7 +127,7 @@
               <strong id="stageTarget">분변 #1</strong>
             </div>
             <div class="camera-metric"><span>위치</span><b id="stagePosition">왼쪽 42mm · 앞 183mm</b></div>
-            <div class="camera-metric"><span>안정성</span><b id="stageStability">5/5 프레임</b></div>
+            <div class="camera-metric"><span>다음 동작</span><b id="stageStability">좌회전 8°</b></div>
           </div>
         </div>
       </section>
@@ -130,26 +157,27 @@
             </div>
           </div>
 
-          <div class="target-card" id="targetCard">
-            <div class="target-icon stool-icon" id="targetIcon">S1</div>
-            <div class="target-main">
-              <div class="target-title-row">
-                <strong id="targetName">분변 #1</strong>
-                <span id="targetTag">우선 대상</span>
-              </div>
-              <div class="confidence-row">
-                <span id="confidenceLabel">모델 신뢰도</span>
-                <div class="confidence-track"><i id="confidenceBar" style="width:91%"></i></div>
-                <b id="confidenceValue">91%</b>
-              </div>
+          <div class="priority-section">
+            <div class="section-label"><span>처리 우선순위</span><small>거리 · 경로 · 검출 안정성</small></div>
+            <div class="priority-queue">
+              <button class="priority-item active" data-target="S-01"><i>1</i><span><b>분변 #1</b><small>183mm</small></span></button>
+              <button class="priority-item" data-target="S-02"><i>2</i><span><b>분변 #2</b><small>224mm</small></span></button>
+              <button class="priority-item urine-item" data-target="U-01"><i>3</i><span><b>소변 후보</b><small>미학습</small></span></button>
             </div>
           </div>
 
-          <dl class="target-data">
-            <div><dt>로봇 기준 위치</dt><dd id="targetPosition">왼쪽 42mm · 앞 183mm</dd></div>
-            <div><dt>예상 영역</dt><dd id="targetSize">68 × 35mm</dd></div>
-            <div><dt>검출 안정성</dt><dd id="targetStability"><span class="good-dot"></span>5/5 프레임</dd></div>
-          </dl>
+          <div class="motion-card" id="motionCard">
+            <div class="motion-card-head">
+              <div><span class="eyebrow" id="planPriority">1순위 이동 계획</span><strong id="planTitle">분변 #1 중심 정렬</strong></div>
+              <span class="plan-confidence" id="planConfidence">91%</span>
+            </div>
+            <div class="maneuver-strip">
+              <span id="planTurn">↺ 8°</span><i>›</i>
+              <span id="planDrive">↑ 183mm</span><i>›</i>
+              <span id="planClean">롤러 1회</span>
+            </div>
+            <p id="planStrategy">중심을 롤러 폭에 맞춘 뒤 직선 접근하여 수거합니다.</p>
+          </div>
         </section>
 
         <section class="action-card">
