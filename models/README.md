@@ -23,6 +23,7 @@ The board header reports `detector=tinyml_roi` only when the model loaded. In
 The versioned artifact was trained from `datasets/stool_public/v1` and is
 described by `reports/stool_fomo_v1_reference.json`. Rebuild it with
 `reproduce_stool_v1.ps1`. To try it on the board, copy the model as
-`fomo_stool.tflite` and copy the label file as `labels.txt`; do not confuse it
-with a future three-class stool+urine model.
+`fomo_stool_v1.tflite` and copy the label file as `labels.txt`; do not confuse
+it with a future three-class stool+urine model. The checked-in
+`nicla/detection_config.py` uses these exact board-side names.
 

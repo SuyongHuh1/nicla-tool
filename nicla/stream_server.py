@@ -46,7 +46,9 @@ FLICKER_SAFE = True         # exposure = whole number of 8.33 ms mains-flicker p
 MAINS_HZ = 60
 MODES = ("manual", "assist", "auto")
 ILLUM_MODES = ("off", "on", "alt")
-SETTABLE = ("jpeg_q", "tof_every", "blobs", "illum", "settle")
+DETECTOR_VIEWS = ("fomo", "color_demo")
+SETTABLE = ("jpeg_q", "tof_every", "blobs", "illum", "settle",
+            "roi_refine", "temporal", "detector_view")
 # -------------------------------------------------------------------------
 
 led = camlib.Led("LED_BLUE")
@@ -60,6 +62,9 @@ state = {
     "blobs": True,            # enables/disables the active detector
     "illum": ILLUM_MODE,
     "settle": ILLUM_SETTLE,
+    "roi_refine": bool(getattr(detection_cfg, "ROI_REFINEMENT_ENABLED", True)),
+    "temporal": bool(getattr(detection_cfg, "TEMPORAL_FILTER_ENABLED", True)),
+    "detector_view": "fomo",
 }
 
 
@@ -136,6 +141,8 @@ def handle(cmd, replies):
                 v = clamp(int(v), 0, 3)
             elif k == "illum":
                 v = v if v in ILLUM_MODES else state["illum"]
+            elif k == "detector_view":
+                v = v if v in DETECTOR_VIEWS else state["detector_view"]
             else:
                 v = bool(v)
             state[k] = v
@@ -145,11 +152,27 @@ def handle(cmd, replies):
 
 
 # -------------------------------------------------------------- detection
-def detect(img, detector):
-    """Returns a list of detection dicts (format: docs/protocol.md)."""
+def detect(img, detector, color_detector, temporal_filter):
+    """Return (detections, active detector, pipeline stage)."""
     if not state["blobs"]:
-        return []
-    return detector.detect(img)
+        temporal_filter.reset()
+        return [], detector.name, "off"
+
+    active = color_detector if state["detector_view"] == "color_demo" else detector
+    if active.name == "tinyml_roi":
+        refine = state["roi_refine"]
+        raw = active.detect(img, refine=refine)
+        pipeline = "fomo_roi" if refine else "fomo_only"
+    else:
+        raw = active.detect(img)
+        pipeline = "color_demo"
+
+    if state["temporal"]:
+        results = temporal_filter.update(raw)
+    else:
+        temporal_filter.reset()
+        results = raw
+    return results, active.name, pipeline
 
 
 # ------------------------------------------------------------------ serve
@@ -167,7 +190,8 @@ def capture(cam, illum, seq):
     return cam.snapshot(), illum.on
 
 
-def serve(client, cam, tof, cam_info, illum, detector):
+def serve(client, cam, tof, cam_info, illum, detector, color_detector,
+          temporal_filter):
     client.settimeout(3.0)
     poller = select.poll()
     poller.register(client, select.POLLIN)
@@ -176,6 +200,7 @@ def serve(client, cam, tof, cam_info, illum, detector):
     tof_mm = None
     fps = 0.0
     t_prev = time.ticks_ms()
+    detection_signature = None
     while True:
         replies = {}
         for ev in poller.poll(0):
@@ -192,7 +217,13 @@ def serve(client, cam, tof, cam_info, illum, detector):
         t_cap = time.ticks_ms()
         if seq % state["tof_every"] == 0:
             tof_mm = camlib.tof_read(tof)
-        dets = detect(img, detector)
+        signature = (state["blobs"], state["detector_view"],
+                     state["roi_refine"], state["temporal"])
+        if signature != detection_signature:
+            temporal_filter.reset()
+            detection_signature = signature
+        dets, detector_name, pipeline = detect(
+            img, detector, color_detector, temporal_filter)
         jpg = camlib.jpeg_bytes(img, state["jpeg_q"])
 
         hdr = {"v": nvproto.PROTO_VERSION, "seq": seq, "ms": t_cap,
@@ -200,7 +231,13 @@ def serve(client, cam, tof, cam_info, illum, detector):
                "det": dets, "mode": state["mode"], "vehicle": state["vehicle"],
                "drive": state["last_drive"], "fps": round(fps, 1), "q": state["jpeg_q"],
                "led": 1 if led_on else 0, "illum": state["illum"] if illum.available() else "none",
-               "detector": detector.name}
+               "detector": detector_name, "pipeline": pipeline,
+               "detector_view": state["detector_view"],
+               "roi_refine": bool(state["roi_refine"]),
+               "roi_refine_active": pipeline == "fomo_roi",
+               "temporal": bool(state["temporal"]),
+               "temporal_window": temporal_filter.window,
+               "temporal_min_hits": temporal_filter.min_hits}
         if seq % 30 == 0:
             hdr["cam"] = cam_info
             hdr["mem"] = gc.mem_free()
@@ -229,6 +266,12 @@ def main():
         exp_lock = camlib.flicker_safe_us(exp0, MAINS_HZ) if (FLICKER_SAFE and exp0) else None
         errs = cam.lock(exposure_us=exp_lock)
     detector = tinyml_roi.create_detector(detection_cfg)
+    color_detector = tinyml_roi.ColorDemoDetector(
+        detection_cfg.DEMO_LAB_THRESHOLDS, detection_cfg.DEMO_MIN_PIXELS)
+    temporal_filter = tinyml_roi.TemporalConsensus(
+        getattr(detection_cfg, "TEMPORAL_WINDOW", 5),
+        getattr(detection_cfg, "TEMPORAL_MIN_HITS", 3),
+        getattr(detection_cfg, "TEMPORAL_MAX_DISTANCE_PX", 32))
     detector_info = detector.describe()
     print("# detector", detector_info)
     illum.set(False)
@@ -250,7 +293,8 @@ def main():
         client, addr = srv.accept()
         print("# client", addr)
         try:
-            serve(client, cam, tof, cam_info, illum, detector)
+            serve(client, cam, tof, cam_info, illum, detector,
+                  color_detector, temporal_filter)
         except OSError as e:
             print("# client gone:", e)
         except Exception as e:          # keep the server alive on unexpected bugs

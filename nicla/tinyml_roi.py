@@ -155,7 +155,7 @@ class TinyMlRoiDetector:
         return {"name": self.name, "api": self.model.api,
                 "model": self.model.model_path}
 
-    def detect(self, img):
+    def detect(self, img, refine=True):
         results = []
         iw, ih = int(img.width()), int(img.height())
         for candidate in self.model.predict(img):
@@ -169,7 +169,7 @@ class TinyMlRoiDetector:
             candidate["region_source"] = "fomo_roi"
 
             thresholds = self.thresholds.get(label)
-            if thresholds:
+            if refine and thresholds:
                 blobs = img.find_blobs(thresholds, roi=roi,
                                        pixels_threshold=self.min_pixels.get(label, 80),
                                        area_threshold=self.min_pixels.get(label, 80), merge=True)
@@ -182,6 +182,59 @@ class TinyMlRoiDetector:
                     candidate["region_source"] = "lab"
             results.append(candidate)
         return results
+
+
+class TemporalConsensus:
+    """Keep current detections that persist in enough recent frames.
+
+    Matching uses class and centre distance.  Only a detection present in the
+    current frame can be emitted, so an object disappearing never leaves a
+    stale box on screen.  The implementation intentionally avoids CPython-only
+    helpers because this module also runs on OpenMV MicroPython.
+    """
+
+    def __init__(self, window=5, min_hits=3, max_distance=32):
+        self.window = max(1, int(window))
+        self.min_hits = max(1, min(int(min_hits), self.window))
+        self.max_distance_sq = max(0, int(max_distance)) ** 2
+        self.history = []
+
+    def reset(self):
+        self.history = []
+
+    @staticmethod
+    def _point(detection):
+        return (detection.get("cls"), int(detection.get("cx", 0)),
+                int(detection.get("cy", 0)))
+
+    def _frame_matches(self, frame, cls, cx, cy):
+        for other_cls, other_x, other_y in frame:
+            if other_cls != cls:
+                continue
+            dx, dy = cx - other_x, cy - other_y
+            if dx * dx + dy * dy <= self.max_distance_sq:
+                return True
+        return False
+
+    def update(self, detections):
+        detections = detections or []
+        self.history.append([self._point(item) for item in detections])
+        if len(self.history) > self.window:
+            self.history.pop(0)
+
+        accepted = []
+        for detection in detections:
+            cls, cx, cy = self._point(detection)
+            hits = 0
+            for frame in self.history:
+                if self._frame_matches(frame, cls, cx, cy):
+                    hits += 1
+            if hits >= self.min_hits:
+                item = dict(detection)
+                item["temporal_hits"] = hits
+                item["temporal_window"] = len(self.history)
+                accepted.append(item)
+        return accepted
 
 
 class ColorDemoDetector:

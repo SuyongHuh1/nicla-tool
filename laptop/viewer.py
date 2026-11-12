@@ -6,6 +6,8 @@ Keys
   W A S D   drive (hold)          SPACE  stop
   + / -     drive speed           1 2 3  mode manual / assist / auto
   [ / ]     JPEG quality -/+      B      toggle active detector
+  O         toggle ROI refinement T      toggle temporal 3-of-5 filter
+  P         FOMO / colour compare
   R         start/stop recording  C      save current frame to captures/
   L         illumination LED: off -> on -> alt (alternate every frame)
   V         view: camera / LED on-off difference (needs alt; shows wet glints)
@@ -34,6 +36,8 @@ import nvlink
 GRADE_COLORS = {0: (60, 200, 60), 1: (0, 220, 255), 2: (0, 140, 255), 3: (40, 40, 230)}   # BGR
 GRADE_NAMES = {0: "hard", 1: "normal", 2: "soft", 3: "liquid"}
 CLASS_COLORS = {"stool": (0, 140, 255), "urine": (255, 255, 0), "blob": (255, 0, 255)}
+FOMO_COLOR = (0, 255, 255)       # yellow: raw FOMO cell
+ROI_COLOR = (255, 120, 0)        # blue: fixed ROI around the FOMO centre
 DRIVE_HOLD_S = 0.25
 CMD_RATE_HZ = 10
 
@@ -187,12 +191,20 @@ def draw_overlay(img, hdr, scale=1.0):
     for d in hdr.get("det", []) or []:
         grade = d.get("grade")
         color = GRADE_COLORS.get(grade, CLASS_COLORS.get(d.get("cls"), (255, 0, 255)))
+        if "fomo_bbox" in d:
+            fx, fy, fw, fh = [int(v * scale) for v in d["fomo_bbox"]]
+            cv2.rectangle(img, (fx, fy), (fx + fw, fy + fh), FOMO_COLOR, 1)
+        if "roi" in d:
+            rx, ry, rw, rh = [int(v * scale) for v in d["roi"]]
+            cv2.rectangle(img, (rx, ry), (rx + rw, ry + rh), ROI_COLOR, 1)
         if "contour" in d and d["contour"]:
             pts = (np.array(d["contour"], np.float32) * scale).astype(np.int32)
             cv2.polylines(img, [pts], True, color, 2, cv2.LINE_AA)
-        if "bbox" in d:
+        if "bbox" in d and (d.get("refined") is not False or "roi" not in d):
             x, y, w, h = [int(v * scale) for v in d["bbox"]]
             cv2.rectangle(img, (x, y), (x + w, y + h), color, 2)
+        elif "roi" in d:
+            x, y, w, h = [int(v * scale) for v in d["roi"]]
         else:
             x, y = int(d.get("cx", 0) * scale), int(d.get("cy", 0) * scale)
         if "cx" in d:
@@ -202,6 +214,8 @@ def draw_overlay(img, hdr, scale=1.0):
             parts.append("ROI")
         if d.get("conf") is not None:
             parts.append("%.0f%%" % (100 * d["conf"]))
+        if d.get("temporal_hits") is not None:
+            parts.append("%d/%dF" % (d["temporal_hits"], d.get("temporal_window", 0)))
         if d.get("area_mm2") is not None:
             parts.append("%.0fmm2" % d["area_mm2"])
         elif d.get("px") is not None:
@@ -236,14 +250,18 @@ def hud_lines(link, hdr, speed, recording, show_help):
     lines = ["fps board %.1f | lat %s ms | rtt %s ms | q %s" % (hdr.get("fps", 0), "%.0f" % lat if lat is not None else "-",
                                                               "%.0f" % rtt if rtt is not None else "-", hdr.get("q", "-")),
              "ToF %s mm | det %d | %s | mode %s" % (tof if tof is not None else "-", len(hdr.get("det", []) or []),
-                                                     hdr.get("detector", "?"), hdr.get("mode", "?")),
+                                                     hdr.get("pipeline", hdr.get("detector", "?")), hdr.get("mode", "?")),
+             "ROI %s | temporal %s (%s/%s)" % (
+                 "on" if hdr.get("roi_refine_active") else "off",
+                 "on" if hdr.get("temporal") else "off",
+                 hdr.get("temporal_min_hits", "-"), hdr.get("temporal_window", "-")),
              "vehicle %s | drive %s | speed %d%%" % (hdr.get("vehicle", "?"), hdr.get("drive"), speed),
              "illum %s | led %s" % (hdr.get("illum", "-"), hdr.get("led", "-"))]
     if recording:
         lines.append("REC %d" % link.rec_count)
     if show_help:
         lines += ["WASD drive  SPACE stop  +/- speed  1/2/3 mode", "[ ] jpeg q  B blobs  R rec  C snap  Q quit",
-                  "L illum off/on/alt  V diff view"]
+                  "O ROI  T temporal  P FOMO/color  L illum  V diff"]
     return lines
 
 
@@ -300,6 +318,7 @@ def main(argv=None):
     illum_modes = ("off", "on", "alt")
     illum = a.illum or "off"
     diff_view = False
+    last_hdr = {}
     t_start = time.monotonic()
     try:
         while link.alive:
@@ -327,6 +346,7 @@ def main(argv=None):
             if latest and lid != shown_id:
                 shown_id = lid
                 hdr, jpg, _ = latest
+                last_hdr = hdr
                 img = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
                 if diff_view and img is not None:
                     import wetlib
@@ -370,6 +390,16 @@ def main(argv=None):
             elif ch == "b":
                 blobs = not blobs
                 link.send({"t": "set", "key": "blobs", "val": blobs})
+            elif ch == "o":
+                link.send({"t": "set", "key": "roi_refine",
+                           "val": not bool(last_hdr.get("roi_refine", True))})
+            elif ch == "t":
+                link.send({"t": "set", "key": "temporal",
+                           "val": not bool(last_hdr.get("temporal", True))})
+            elif ch == "p":
+                current = last_hdr.get("detector_view", "fomo")
+                link.send({"t": "set", "key": "detector_view",
+                           "val": "color_demo" if current == "fomo" else "fomo"})
             elif ch == "r":
                 print(link.toggle_record())
             elif ch == "c":

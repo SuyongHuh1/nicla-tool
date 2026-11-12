@@ -6,12 +6,38 @@ bugs (typos, wrong calls, protocol mismatches) - not firmware behaviour.
 import sys
 import time
 import types
+import select
+import socket  # load selectors before adding the OpenMV-style poll shim
 
 import cv2
 import numpy as np
 
 _T0 = time.monotonic()
 LED_STATE = {"D0": 0}   # simulated illumination pin, read by the fake camera
+
+
+# OpenMV/MicroPython exposes select.poll(), while Windows CPython only exposes
+# select.select().  Adapt the tiny subset used by stream_server.py so the real
+# board command loop can be exercised in the Windows integration test.
+if not hasattr(select, "poll"):
+    select.POLLIN, select.POLLERR, select.POLLHUP = 1, 8, 16
+
+    class _Poll:
+        def __init__(self):
+            self.items = []
+
+        def register(self, item, flags=select.POLLIN):
+            self.items.append(item)
+
+        def poll(self, timeout=0):
+            seconds = None if timeout is None or timeout < 0 else timeout / 1000.0
+            readable, _, exceptional = select.select(
+                self.items, [], self.items, seconds)
+            events = [(item, select.POLLIN) for item in readable]
+            events += [(item, select.POLLERR) for item in exceptional]
+            return events
+
+    select.poll = _Poll
 
 
 def _ticks_ms():

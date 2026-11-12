@@ -28,6 +28,10 @@ TCP, 보드가 서버(포트 5005), 노트북이 클라이언트. 동시에 한 
 | `led` | 이 프레임을 찍을 때 보조 LED가 켜져 있었나 (1/0) |
 | `illum` | LED 모드 off / on / alt (LED가 없으면 `none`) |
 | `detector` | 실제 활성 검출기 (`tinyml_roi`, `color_demo`, `simulated` 등) |
+| `pipeline` | 실제 단계 (`fomo_roi`, `fomo_only`, `color_demo`, `off`) |
+| `detector_view` | 요청한 비교 경로 (`fomo` / `color_demo`) |
+| `roi_refine`, `roi_refine_active` | ROI 보정 설정 / 현재 실제 적용 여부 |
+| `temporal`, `temporal_window`, `temporal_min_hits` | 시간축 필터 설정 |
 | `ack` / `pong` / `err` | 명령 응답 (해당 프레임에만) |
 
 검출 항목 (`det`의 원소) — 있는 키만 그린다
@@ -59,7 +63,7 @@ JSON 한 줄 + `\n`. 모든 명령에 `seq`.
 | drive | `{"t":"drive","l":50,"r":50,"seq":2}` | 좌우 바퀴 −100~100 %. 뷰어는 키를 누르는 동안 10 Hz로 반복 송신 |
 | stop | `{"t":"stop","seq":3}` | 정지 |
 | mode | `{"t":"mode","m":"assist","seq":4}` | 모드 변경 |
-| set | `{"t":"set","key":"jpeg_q","val":40,"seq":5}` | `jpeg_q`, `tof_every`, `blobs`, `illum`(off/on/alt), `settle`(0~3) 변경 |
+| set | `{"t":"set","key":"jpeg_q","val":40,"seq":5}` | `jpeg_q`, `tof_every`, `blobs`, `illum`(off/on/alt), `settle`(0~3), `roi_refine`, `temporal`, `detector_view`(fomo/color_demo) 변경 |
 
 ## 차량 연결 (미정 — 차량 팀 코드 확정 후)
 

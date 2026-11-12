@@ -24,6 +24,25 @@ FOMO: stool / urine 중심과 신뢰도
 API를 모두 시도한다. 새 모델로 작업할 때는 최신 OpenMV 펌웨어를 우선
 사용하고 실제 Nicla에서 메모리와 FPS를 다시 측정한다.
 
+## 실행 중 비교 스위치
+
+뷰어에서 보드 파일을 다시 쓰거나 재부팅하지 않고 검출 단계를 비교할 수
+있다. 전환 값은 프레임 헤더와 녹화 `meta.jsonl`에도 저장된다.
+
+| 키 | 전환 | 정상 운용 기본값 |
+|---|---|---|
+| `O` | FOMO 중심 주변 LAB ROI 보정 켜기/끄기 | 켜기 |
+| `T` | 최근 5프레임 중 3프레임 합의 켜기/끄기 | 켜기 |
+| `P` | FOMO 파이프라인/기존 전체 화면 색상 데모 비교 | FOMO |
+| `B` | 검출 전체 켜기/끄기 | 켜기 |
+
+`O`를 꺼도 FOMO 추론은 계속 실행하며 고정 ROI를 표시한다. 따라서 FOMO가
+중심을 잘못 찾은 경우와 색상 보정이 실패한 경우를 구분할 수 있다. 화면의
+노란 박스는 FOMO 셀, 파란 박스는 고정 ROI, 클래스 색 박스는 보정된 최종
+영역이다. 정상 운용 시 HUD가 `fomo_roi`, `ROI on`, `temporal on (3/5)`인지
+확인한다. 이 스위치는 실행 중 임시 값이며 재부팅하면 `detection_config.py`의
+기본값으로 돌아간다.
+
 ## 수집 전에 고정할 조건
 
 데이터는 반드시 실제 로봇 전면 장착 위치에서 수집한다.
@@ -131,8 +150,9 @@ LED 켬/끔 차분 blob을 사용한다.
 
 1. `main.py`, `camlib.py`, `nvproto.py`, `tinyml_roi.py`,
    `detection_config.py`, `labels.txt`, `wifi_config.py`를 보드에 둔다.
-2. 모델을 `fomo_stool_urine.tflite`로 복사하거나 펌웨어에 내장한다.
+2. 현재 분변 모델 `models/fomo_stool_v1.tflite`를 보드 루트에 같은 이름으로
+   복사하고 `models/fomo_stool_v1_labels.txt`는 `labels.txt`로 복사한다.
 3. `DETECTOR_MODE="tinyml_roi"`로 바꾼다.
-4. 시리얼의 `# detector`와 뷰어 HUD가 `tinyml_roi`인지 확인한다.
+4. 시리얼의 `# detector`가 `tinyml_roi`, 뷰어 HUD가 `fomo_roi`인지 확인한다.
 5. 실제 보드의 FPS, `mem` 값, 중심 오차, ROI bbox 커버리지를 기록한다.
 

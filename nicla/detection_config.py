@@ -9,10 +9,19 @@ DETECTOR_MODE = "auto"  # "auto" | "tinyml_roi" | "color_demo"
 
 # Edge Impulse/OpenMV FOMO model.  A filesystem model normally uses the first
 # path.  A model baked into custom OpenMV firmware can use a /rom/... path.
-FOMO_MODEL_PATH = "fomo_stool_urine.tflite"
+FOMO_MODEL_PATH = "fomo_stool_v1.tflite"
 FOMO_LABELS_PATH = "labels.txt"
 FOMO_CONFIDENCE = 0.55
 FOMO_LOAD_TO_FB = True
+
+# Runtime switches.  The laptop viewer can temporarily change these without
+# rewriting this file or rebooting the board:
+#   O = ROI refinement, T = temporal consensus, P = FOMO/colour comparison.
+ROI_REFINEMENT_ENABLED = True
+TEMPORAL_FILTER_ENABLED = True
+TEMPORAL_WINDOW = 5
+TEMPORAL_MIN_HITS = 3
+TEMPORAL_MAX_DISTANCE_PX = 32
 
 # Labels produced by the model are normalised before ROI refinement.
 CLASS_ALIASES = {
