@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#eef4f0">
+  <meta name="description" content="Nicla Vision 분변 수거 로봇의 모바일 제어 UI 프로토타입">
+  <title>Nicla Cleaner</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="orientation-gate" aria-hidden="true">
+    <div class="rotate-phone">↻</div>
+    <strong>iPhone을 가로로 돌려주세요</strong>
+    <span>이 데모는 가로 화면에 맞춰져 있습니다.</span>
+  </div>
+
+  <div class="app-shell" id="appShell">
+    <header class="topbar">
+      <div class="brand" aria-label="Nicla Cleaner 홈">
+        <div class="brand-mark">
+          <span class="robot-eye"></span>
+          <span class="robot-eye"></span>
+        </div>
+        <div>
+          <strong>NICLA</strong>
+          <span>CLEANER</span>
+        </div>
+      </div>
+
+      <div class="connection-pill" id="connectionPill">
+        <i></i><span>데모 모드</span>
+        <small>16 FPS · 42ms</small>
+      </div>
+
+      <nav class="topnav" aria-label="주요 화면">
+        <button class="nav-button active" data-view="home" aria-pressed="true">
+          <span class="nav-icon">⌂</span>홈
+        </button>
+        <button class="nav-button" data-view="history">
+          <span class="nav-icon">◷</span>기록
+        </button>
+        <button class="nav-button" data-view="diagnostics">
+          <span class="nav-icon">⌁</span>진단
+        </button>
+      </nav>
+
+      <button class="emergency-button" id="emergencyButton" aria-label="긴급 정지">
+        <span>■</span> 긴급 정지
+      </button>
+    </header>
+
+    <main class="workspace">
+      <section class="camera-card" aria-label="실시간 카메라">
+        <div class="camera-toolbar">
+          <div class="live-chip"><i></i> LIVE <span>QVGA</span></div>
+          <div class="layer-switch" role="group" aria-label="카메라 표시 레이어">
+            <button data-layer="raw">원본</button>
+            <button data-layer="fomo" class="active">FOMO</button>
+            <button data-layer="roi" class="active">ROI</button>
+          </div>
+          <button class="icon-button" id="captureButton" aria-label="현재 화면 저장">◎</button>
+        </div>
+
+        <div class="camera-stage" id="cameraStage">
+          <div class="floor-grid"></div>
+          <div class="light-falloff"></div>
+          <div class="roller-reference">
+            <span>ROLLER</span>
+          </div>
+          <div class="guideline vertical"></div>
+          <div class="guideline horizontal"></div>
+
+          <button class="detection stool selected" data-target="S-01" style="--x: 56%; --y: 34%; --w: 18%; --h: 23%;">
+            <span class="fomo-cell"></span>
+            <span class="roi-box"></span>
+            <span class="object-shape shape-one"></span>
+            <span class="detection-label"><b>분변 #1</b><em>91%</em></span>
+          </button>
+
+          <button class="detection stool" data-target="S-02" style="--x: 24%; --y: 56%; --w: 14%; --h: 17%;">
+            <span class="fomo-cell"></span>
+            <span class="roi-box"></span>
+            <span class="object-shape shape-two"></span>
+            <span class="detection-label"><b>분변 #2</b><em>87%</em></span>
+          </button>
+
+          <button class="detection urine pending" data-target="U-01" style="--x: 76%; --y: 67%; --w: 17%; --h: 14%;">
+            <span class="fomo-cell"></span>
+            <span class="roi-box"></span>
+            <span class="object-shape shape-urine"></span>
+            <span class="detection-label"><b>소변 후보</b><em>미학습</em></span>
+          </button>
+
+          <div class="camera-status">
+            <div>
+              <span class="eyebrow">선택 대상</span>
+              <strong id="stageTarget">분변 #1</strong>
+            </div>
+            <div class="camera-metric"><span>위치</span><b id="stagePosition">왼쪽 42mm · 앞 183mm</b></div>
+            <div class="camera-metric"><span>안정성</span><b id="stageStability">5/5 프레임</b></div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="control-column">
+        <section class="status-card">
+          <div class="status-heading">
+            <div>
+              <span class="eyebrow">현재 작업</span>
+              <h1 id="statusTitle">분변 2개 감지됨</h1>
+            </div>
+            <span class="status-badge" id="statusBadge">대상 확인</span>
+          </div>
+
+          <div class="count-strip">
+            <button class="count-item active" data-filter="stool">
+              <span class="count-dot stool-dot"></span>
+              <small>분변</small><strong id="stoolCount">2</strong>
+            </button>
+            <button class="count-item" data-filter="urine">
+              <span class="count-dot urine-dot"></span>
+              <small>소변 후보</small><strong id="urineCount">1</strong>
+            </button>
+            <div class="count-item neutral">
+              <span class="count-dot done-dot"></span>
+              <small>처리 완료</small><strong id="doneCount">0</strong>
+            </div>
+          </div>
+
+          <div class="target-card" id="targetCard">
+            <div class="target-icon stool-icon" id="targetIcon">S1</div>
+            <div class="target-main">
+              <div class="target-title-row">
+                <strong id="targetName">분변 #1</strong>
+                <span id="targetTag">우선 대상</span>
+              </div>
+              <div class="confidence-row">
+                <span id="confidenceLabel">모델 신뢰도</span>
+                <div class="confidence-track"><i id="confidenceBar" style="width:91%"></i></div>
+                <b id="confidenceValue">91%</b>
+              </div>
+            </div>
+          </div>
+
+          <dl class="target-data">
+            <div><dt>로봇 기준 위치</dt><dd id="targetPosition">왼쪽 42mm · 앞 183mm</dd></div>
+            <div><dt>예상 영역</dt><dd id="targetSize">68 × 35mm</dd></div>
+            <div><dt>검출 안정성</dt><dd id="targetStability"><span class="good-dot"></span>5/5 프레임</dd></div>
+          </dl>
+        </section>
+
+        <section class="action-card">
+          <ol class="progress-steps" aria-label="청소 진행 상태">
+            <li class="done" data-step="search"><i>✓</i><span>탐색</span></li>
+            <li class="active" data-step="align"><i>2</i><span>정렬</span></li>
+            <li data-step="collect"><i>3</i><span>수거</span></li>
+            <li data-step="verify"><i>4</i><span>확인</span></li>
+          </ol>
+
+          <div class="action-row">
+            <button class="primary-action" id="primaryAction">
+              <span class="play-symbol">▶</span>
+              <span><small>다음 단계</small><b id="actionLabel">대상 정렬 시작</b></span>
+            </button>
+            <button class="secondary-action" id="remoteButton">
+              <span>✥</span><small>원격 조종</small>
+            </button>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <div class="sheet-backdrop" id="sheetBackdrop"></div>
+
+    <section class="side-sheet" id="remoteSheet" aria-hidden="true">
+      <header>
+        <div><span class="eyebrow">점검용 기능</span><h2>원격 조종</h2></div>
+        <button class="sheet-close" data-close-sheet>×</button>
+      </header>
+      <p class="sheet-note">버튼을 누르는 동안만 이동하며 손을 떼면 즉시 정지합니다.</p>
+      <div class="remote-layout">
+        <div class="dpad" aria-label="차량 방향 제어">
+          <button class="up" data-drive="forward">▲</button>
+          <button class="left" data-drive="left">◀</button>
+          <button class="stop" data-drive="stop">■</button>
+          <button class="right" data-drive="right">▶</button>
+          <button class="down" data-drive="back">▼</button>
+        </div>
+        <div class="remote-options">
+          <label>주행 속도 <b id="speedValue">40%</b></label>
+          <input id="speedRange" type="range" min="10" max="80" value="40" step="10">
+          <button class="roller-button" id="rollerButton"><i></i>롤러 시험</button>
+          <span class="uno-state">UNO <i></i> 시뮬레이션</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="side-sheet" id="historySheet" aria-hidden="true">
+      <header>
+        <div><span class="eyebrow">최근 작업</span><h2>청소 기록</h2></div>
+        <button class="sheet-close" data-close-sheet>×</button>
+      </header>
+      <div class="summary-grid">
+        <div><span>발견</span><strong>3</strong><small>개</small></div>
+        <div><span>처리</span><strong>2</strong><small>개</small></div>
+        <div><span>평균 시간</span><strong>18</strong><small>초</small></div>
+      </div>
+      <ul class="history-list">
+        <li><i class="history-thumb stool-thumb"></i><div><b>분변 #2 수거 완료</b><span>13:42 · 신뢰도 89% · 16초</span></div><em>완료</em></li>
+        <li><i class="history-thumb stool-thumb two"></i><div><b>분변 #1 감지</b><span>13:41 · 신뢰도 91% · 왼쪽 42mm</span></div><em class="active">진행 중</em></li>
+        <li><i class="history-thumb urine-thumb"></i><div><b>젖은 영역 후보</b><span>13:40 · 미학습 클래스 · 검토 필요</span></div><em class="review">후보</em></li>
+      </ul>
+    </section>
+
+    <section class="side-sheet diagnostics-sheet" id="diagnosticsSheet" aria-hidden="true">
+      <header>
+        <div><span class="eyebrow">개발자 도구</span><h2>검출 진단</h2></div>
+        <button class="sheet-close" data-close-sheet>×</button>
+      </header>
+      <div class="diagnostic-status">
+        <div><span>파이프라인</span><b id="pipelineName">FOMO → ROI</b></div>
+        <div><span>모델</span><b>stool-fomo-v1</b></div>
+        <div><span>입력</span><b>96 × 96 RGB</b></div>
+      </div>
+      <div class="toggle-list">
+        <label><span><b>ROI 색상 보정</b><small>FOMO 중심 주변 실제 영역 계산</small></span><input type="checkbox" id="roiToggle" checked><i></i></label>
+        <label><span><b>시간축 필터</b><small>최근 5프레임 중 3프레임 확인</small></span><input type="checkbox" id="temporalToggle" checked><i></i></label>
+        <label><span><b>FOMO 셀 표시</b><small>노란색 중심 셀 오버레이</small></span><input type="checkbox" id="fomoToggle" checked><i></i></label>
+      </div>
+      <div class="model-metrics">
+        <div class="metric-title"><span>검증 성능</span><small>독립 평가 15장</small></div>
+        <div><span>F1</span><strong>90.5%</strong></div>
+        <div><span>Precision</span><strong>82.6%</strong></div>
+        <div><span>Recall</span><strong>100%</strong></div>
+      </div>
+      <p class="diagnostic-footnote">표시된 퍼센트는 모델 전체 성능입니다. 화면의 대상별 수치는 모델 신뢰도이며 정확도와 다릅니다.</p>
+    </section>
+
+    <div class="stop-overlay" id="stopOverlay" aria-hidden="true">
+      <div class="stop-dialog">
+        <span class="stop-icon">■</span>
+        <div><span class="eyebrow">SAFETY STOP</span><h2>로봇이 정지했습니다</h2><p>주행과 롤러 명령을 모두 중지했습니다.</p></div>
+        <button id="resumeButton">정지 해제</button>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status">현재 화면을 저장했습니다</div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
