@@ -1,4 +1,7 @@
-# 1단계: 하드웨어 확인 (간략판)
+# 하드웨어 확인 실험 (기존 1단계)
+
+이 문서는 개별 하드웨어 실험 절차다. 전체 개발 순서는 [현재 로드맵](roadmap.md)을 따른다.
+현재 v1은 분변 전용이며 ToF·액체 실험은 후속 확장 판단에 사용한다.
 
 목표: 학습 데이터를 모으기 전에 **세 가지만 확인**한다. 전부 합쳐 2시간 안쪽, 추가 구매는 거의 없음.
 
@@ -23,7 +26,11 @@ D는 주행 중 액체 판별을 넣기로 했기 때문에 추가한 실험이�
    cd nicla-tool
    py -m pip install -r laptop\requirements.txt
    ```
-3. 보드 드라이브(USB로 연결하면 보이는 디스크)에 `nicla\camlib.py`, `nicla\nvproto.py` 복사
+3. 보드 드라이브(USB로 연결하면 보이는 디스크)에 `nicla/camlib.py`, `nicla/nvproto.py`,
+   `nicla/tinyml_roi.py`, `nicla/detection_config.py`, `nicla/labels.txt`를 복사한다.
+   A의 색상 데모 실험에는 `detection_config.py`의 `DETECTOR_MODE="color_demo"`를 사용한다.
+   실제 분변 모델 실험은 [배포 체크](tinyml_roi.md#보드-배포-체크)를 따라 모델도 복사하고
+   `DETECTOR_MODE="tinyml_roi"`로 전환한다.
 4. `nicla\wifi_config_example.py`를 `wifi_config.py`로 복사해 노트북 핫스팟 이름·비밀번호(2.4 GHz)를 적고 보드 드라이브에 복사
 5. 안테나를 보드 J6 커넥터에 연결
 
@@ -41,7 +48,7 @@ D는 주행 중 액체 판별을 넣기로 했기 때문에 추가한 실험이�
    ```
 4. 화면 확인: 갈색 물건(초콜릿, 갈색 지우개 등)을 놓으면 분홍 박스가 떠야 함. WASD를 누르면 화면 위 `drive` 값이 바뀌어야 함 (차량 연결 전이라 명령 도착만 확인)
 
-**결과**: 60초 뒤 `results\stream\wifi.json`에 fps와 지연이 저장됨. **8 fps 이상이면 통과.** 박스가 안 뜨면 `stream_server.py`의 `BLOB_LAB` 값을 OpenMV IDE *Tools → Machine Vision → Threshold Editor*로 조정.
+**결과**: 60초 뒤 `results\stream\wifi.json`에 fps와 지연이 저장됨. **8 fps 이상이면 통과.** 박스가 안 뜨면 `detection_config.py`의 `STOOL_LAB_THRESHOLDS` 값을 OpenMV IDE *Tools → Machine Vision → Threshold Editor*로 조정.
 
 ## B. ToF 높이 + 화면 크기 (40분)
 

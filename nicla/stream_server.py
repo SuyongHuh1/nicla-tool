@@ -5,11 +5,11 @@
 # Protocol: see nicla/nvproto.py and docs/protocol.md.
 #
 # Files that must be on the board drive: main.py (this file), camlib.py,
-# nvproto.py, wifi_config.py.
+# nvproto.py, tinyml_roi.py, detection_config.py, labels.txt and wifi_config.py.
 #
-# Phase 1: detections come from a simple colour-blob detector (DEMO_BLOBS) so
-# the overlay pipeline can be tested now. Phase 4 replaces detect() with
-# FOMO + the firmness classifier.
+# In auto mode the phase-1 colour detector remains available until a FOMO
+# model is installed.  With a model, FOMO finds stool/urine centres and the
+# class-specific ROI refiner estimates the area the roller should cover.
 #
 # Vehicle control is NOT implemented yet: drive/stop commands are acknowledged
 # and stored in `state`, and vehicle_send() is the single place where the
@@ -22,7 +22,9 @@ import socket
 import select
 
 import camlib
+import detection_config as detection_cfg
 import nvproto
+import tinyml_roi
 
 try:
     import wifi_config as cfg
@@ -35,11 +37,6 @@ FRAMESIZE = "QVGA"          # 320x240
 JPEG_QUALITY = 50           # adjustable live from the viewer ([ and ] keys)
 TOF_EVERY = 3               # read ToF every N frames (the read blocks for a while)
 LOCK_CAMERA = True          # freeze exposure / gain / white balance after warm-up
-DEMO_BLOBS = True           # phase-1 stand-in detector
-# LAB threshold (L_min, L_max, A_min, A_max, B_min, B_max) for dark brown objects.
-# Tune with OpenMV IDE: Tools > Machine Vision > Threshold Editor.
-BLOB_LAB = (0, 45, 0, 35, 0, 45)
-BLOB_MIN_PIXELS = 120
 # Illumination LED for wet-floor (urine) detection - see docs/phase1.md 1-6.
 ILLUM_PIN = None            # experiment C uses a phone flashlight. With the D breadboard LED circuit: "D0"
 ILLUM_MODE = "off"          # "off" | "on" | "alt" (toggle every frame -> on/off pairs)
@@ -49,7 +46,9 @@ FLICKER_SAFE = True         # exposure = whole number of 8.33 ms mains-flicker p
 MAINS_HZ = 60
 MODES = ("manual", "assist", "auto")
 ILLUM_MODES = ("off", "on", "alt")
-SETTABLE = ("jpeg_q", "tof_every", "blobs", "illum", "settle")
+DETECTOR_VIEWS = ("fomo", "color_demo")
+SETTABLE = ("jpeg_q", "tof_every", "blobs", "illum", "settle",
+            "roi_refine", "temporal", "detector_view")
 # -------------------------------------------------------------------------
 
 led = camlib.Led("LED_BLUE")
@@ -60,9 +59,12 @@ state = {
     "last_cmd_ms": None,
     "jpeg_q": JPEG_QUALITY,
     "tof_every": TOF_EVERY,
-    "blobs": DEMO_BLOBS,
+    "blobs": True,            # enables/disables the active detector
     "illum": ILLUM_MODE,
     "settle": ILLUM_SETTLE,
+    "roi_refine": bool(getattr(detection_cfg, "ROI_REFINEMENT_ENABLED", True)),
+    "temporal": bool(getattr(detection_cfg, "TEMPORAL_FILTER_ENABLED", True)),
+    "detector_view": "fomo",
 }
 
 
@@ -70,7 +72,13 @@ def wifi_up():
     mode = getattr(cfg, "WIFI_MODE", "sta")
     if mode == "ap":
         wlan = network.WLAN(network.AP_IF)
-        wlan.config(ssid=cfg.AP_SSID, key=cfg.AP_PASS)
+        # OpenMV 4.3.x used ``essid/password`` while newer MicroPython WLAN
+        # builds use ``ssid/key``.  Nicla boards in the field can have either
+        # firmware, so keep both spellings instead of forcing a firmware flash.
+        try:
+            wlan.config(ssid=cfg.AP_SSID, key=cfg.AP_PASS)
+        except (TypeError, ValueError):
+            wlan.config(essid=cfg.AP_SSID, password=cfg.AP_PASS)
         wlan.active(True)
     else:
         wlan = network.WLAN(network.STA_IF)
@@ -133,6 +141,8 @@ def handle(cmd, replies):
                 v = clamp(int(v), 0, 3)
             elif k == "illum":
                 v = v if v in ILLUM_MODES else state["illum"]
+            elif k == "detector_view":
+                v = v if v in DETECTOR_VIEWS else state["detector_view"]
             else:
                 v = bool(v)
             state[k] = v
@@ -142,18 +152,27 @@ def handle(cmd, replies):
 
 
 # -------------------------------------------------------------- detection
-def detect(img):
-    """Returns a list of detection dicts (format: docs/protocol.md)."""
+def detect(img, detector, color_detector, temporal_filter):
+    """Return (detections, active detector, pipeline stage)."""
     if not state["blobs"]:
-        return []
-    out = []
-    for b in img.find_blobs([BLOB_LAB], pixels_threshold=BLOB_MIN_PIXELS,
-                            area_threshold=BLOB_MIN_PIXELS, merge=True):
-        out.append({"cls": "blob", "bbox": [b.x(), b.y(), b.w(), b.h()],
-                    "cx": b.cx(), "cy": b.cy(), "px": b.pixels()})
-        if len(out) >= 8:
-            break
-    return out
+        temporal_filter.reset()
+        return [], detector.name, "off"
+
+    active = color_detector if state["detector_view"] == "color_demo" else detector
+    if active.name == "tinyml_roi":
+        refine = state["roi_refine"]
+        raw = active.detect(img, refine=refine)
+        pipeline = "fomo_roi" if refine else "fomo_only"
+    else:
+        raw = active.detect(img)
+        pipeline = "color_demo"
+
+    if state["temporal"]:
+        results = temporal_filter.update(raw)
+    else:
+        temporal_filter.reset()
+        results = raw
+    return results, active.name, pipeline
 
 
 # ------------------------------------------------------------------ serve
@@ -171,7 +190,8 @@ def capture(cam, illum, seq):
     return cam.snapshot(), illum.on
 
 
-def serve(client, cam, tof, cam_info, illum):
+def serve(client, cam, tof, cam_info, illum, detector, color_detector,
+          temporal_filter):
     client.settimeout(3.0)
     poller = select.poll()
     poller.register(client, select.POLLIN)
@@ -180,6 +200,7 @@ def serve(client, cam, tof, cam_info, illum):
     tof_mm = None
     fps = 0.0
     t_prev = time.ticks_ms()
+    detection_signature = None
     while True:
         replies = {}
         for ev in poller.poll(0):
@@ -196,14 +217,27 @@ def serve(client, cam, tof, cam_info, illum):
         t_cap = time.ticks_ms()
         if seq % state["tof_every"] == 0:
             tof_mm = camlib.tof_read(tof)
-        dets = detect(img)
+        signature = (state["blobs"], state["detector_view"],
+                     state["roi_refine"], state["temporal"])
+        if signature != detection_signature:
+            temporal_filter.reset()
+            detection_signature = signature
+        dets, detector_name, pipeline = detect(
+            img, detector, color_detector, temporal_filter)
         jpg = camlib.jpeg_bytes(img, state["jpeg_q"])
 
         hdr = {"v": nvproto.PROTO_VERSION, "seq": seq, "ms": t_cap,
                "w": img.width(), "h": img.height(), "tof_mm": tof_mm,
                "det": dets, "mode": state["mode"], "vehicle": state["vehicle"],
                "drive": state["last_drive"], "fps": round(fps, 1), "q": state["jpeg_q"],
-               "led": 1 if led_on else 0, "illum": state["illum"] if illum.available() else "none"}
+               "led": 1 if led_on else 0, "illum": state["illum"] if illum.available() else "none",
+               "detector": detector_name, "pipeline": pipeline,
+               "detector_view": state["detector_view"],
+               "roi_refine": bool(state["roi_refine"]),
+               "roi_refine_active": pipeline == "fomo_roi",
+               "temporal": bool(state["temporal"]),
+               "temporal_window": temporal_filter.window,
+               "temporal_min_hits": temporal_filter.min_hits}
         if seq % 30 == 0:
             hdr["cam"] = cam_info
             hdr["mem"] = gc.mem_free()
@@ -231,11 +265,21 @@ def main():
         exp0, _, _ = cam.state()
         exp_lock = camlib.flicker_safe_us(exp0, MAINS_HZ) if (FLICKER_SAFE and exp0) else None
         errs = cam.lock(exposure_us=exp_lock)
+    detector = tinyml_roi.create_detector(detection_cfg)
+    color_detector = tinyml_roi.ColorDemoDetector(
+        detection_cfg.DEMO_LAB_THRESHOLDS, detection_cfg.DEMO_MIN_PIXELS)
+    temporal_filter = tinyml_roi.TemporalConsensus(
+        getattr(detection_cfg, "TEMPORAL_WINDOW", 5),
+        getattr(detection_cfg, "TEMPORAL_MIN_HITS", 3),
+        getattr(detection_cfg, "TEMPORAL_MAX_DISTANCE_PX", 32))
+    detector_info = detector.describe()
+    print("# detector", detector_info)
     illum.set(False)
     exp, gain, wb = cam.state()
     cam_info = {"locked": LOCK_CAMERA, "exp_us": exp, "gain_db": gain,
                 "wb": list(wb) if wb else None, "lock_errors": errs,
-                "illum_pin": ILLUM_PIN if illum.available() else None}
+                "illum_pin": ILLUM_PIN if illum.available() else None,
+                "detector": detector_info}
     tof = camlib.open_tof()
     ip = wifi_up()
     led.set(True)
@@ -249,7 +293,8 @@ def main():
         client, addr = srv.accept()
         print("# client", addr)
         try:
-            serve(client, cam, tof, cam_info, illum)
+            serve(client, cam, tof, cam_info, illum, detector,
+                  color_detector, temporal_filter)
         except OSError as e:
             print("# client gone:", e)
         except Exception as e:          # keep the server alive on unexpected bugs

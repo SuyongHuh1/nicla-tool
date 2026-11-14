@@ -1,0 +1,10 @@
+# Keep the reproducibility dataset byte-stable across Windows and Unix clones.
+datasets/stool_public/v1/**/*.txt text eol=lf
+datasets/stool_public/v1/**/*.json text eol=lf
+datasets/stool_public/v1/**/*.jsonl text eol=lf
+datasets/stool_public/v1/**/*.md text eol=lf
+datasets/stool_public/v1/**/*.sha256 text eol=lf
+datasets/stool_public/v1/**/*.jpg binary
+datasets/stool_public/v1/**/*.jpeg binary
+datasets/stool_public/v1/**/*.png binary
+models/*.tflite binary
