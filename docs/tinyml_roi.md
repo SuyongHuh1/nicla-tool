@@ -1,6 +1,10 @@
 # TinyML 중심 검출 + ROI 영역 추정
 
-## 현재 브랜치의 실행 구조
+## 현재 실행 구조
+
+현재 배포 모델은 **분변 전용(background/stool)**이다. 아래 urine 분기는
+미래 모델을 위한 코드 경로이며, 현재 소변 검출 기능이 아니다.
+우선순위는 [로드맵](roadmap.md)을 따른다.
 
 ```text
 Nicla QVGA 프레임
@@ -57,7 +61,11 @@ API를 모두 시도한다. 새 모델로 작업할 때는 최신 OpenMV 펌웨�
 `calibrate.py floor`의 homography 결과를 사용하고, 높이가 있는 분변에는
 보정 오차를 고려한 청소 여유 폭을 둔다.
 
-## 첫 FOMO 데이터 수집안
+## 향후 FOMO 데이터 수집안
+
+아래는 수집 목표다. 현재 v1은 분변 195장과 독립 평가 15장이며,
+세션별 70/15/15 대신 물체 집단별 분리와 6-fold 검증을 사용한다.
+이 데이터만으로 아래 ROI·음성·소변 검증 게이트를 통과했다고 볼 수 없다.
 
 아래 수량은 데모 가능성을 확인하기 위한 시작점이지 정확도를 보장하는
 기준은 아니다.
@@ -152,7 +160,8 @@ LED 켬/끔 차분 blob을 사용한다.
    `detection_config.py`, `labels.txt`, `wifi_config.py`를 보드에 둔다.
 2. 현재 분변 모델 `models/fomo_stool_v1.tflite`를 보드 루트에 같은 이름으로
    복사하고 `models/fomo_stool_v1_labels.txt`는 `labels.txt`로 복사한다.
-3. `DETECTOR_MODE="tinyml_roi"`로 바꾼다.
+3. `DETECTOR_MODE="tinyml_roi"`로 바꾸고 기준 모델 임계값 `0.60`을 확인한다.
+   재학습 모델은 해당 validation에서 선택된 임계값을 사용한다.
 4. 시리얼의 `# detector`가 `tinyml_roi`, 뷰어 HUD가 `fomo_roi`인지 확인한다.
 5. 실제 보드의 FPS, `mem` 값, 중심 오차, ROI bbox 커버리지를 기록한다.
 
