@@ -1,6 +1,23 @@
 __pycache__/
 .pytest_cache/
+.venv/
+tmp/
 nicla/wifi_config.py
 recordings/
 captures/
 *.pyc
+
+# Local training data and generated annotations can be large and may contain
+# room/background imagery.  Keep the documented folder skeleton only.
+datasets/fomo/images/
+datasets/fomo/manifest.jsonl
+datasets/segmentation/images/
+datasets/segmentation/masks/
+datasets/segmentation/manifest.jsonl
+datasets/stool/
+training_runs/
+
+# Exported models are copied to the Nicla drive or baked into firmware.
+models/*.tflite
+!models/fomo_stool_v1.tflite
+nicla/*.tflite

@@ -166,7 +166,11 @@ def test_make_board_rejects_too_big():
 def test_draw_overlay_all_fields():
     img = np.zeros((480, 640, 3), np.uint8)
     hdr = {"det": [{"cls": "blob", "bbox": [10, 10, 40, 30], "cx": 30, "cy": 25, "px": 900},
-                   {"grade": 3, "conf": 0.9, "cx": 100, "cy": 100, "contour": [[90, 90], [110, 90], [110, 110]],
+                   {"grade": 3, "conf": 0.9, "cx": 100, "cy": 100,
+                    "fomo_bbox": [96, 96, 8, 8], "roi": [70, 70, 60, 60],
+                    "bbox": [85, 85, 30, 30], "refined": True,
+                    "temporal_hits": 3, "temporal_window": 5,
+                    "contour": [[90, 90], [110, 90], [110, 110]],
                     "area_mm2": 1200.0, "height_mm": 8.0}]}
     viewer.draw_overlay(img, hdr, 2.0)
     assert img.sum() > 0
@@ -220,7 +224,10 @@ def test_board_stream_server_under_shim(tmp_path):
                 time.sleep(0.1)
         assert sock is not None, "board sim did not start"
         sock.sendall(nvlink.encode_cmd({"t": "ping", "seq": 7}) + nvlink.encode_cmd({"t": "drive", "l": 150, "r": -20, "seq": 8})
-                     + nvlink.encode_cmd({"t": "set", "key": "jpeg_q", "val": 20, "seq": 9}))
+                     + nvlink.encode_cmd({"t": "set", "key": "jpeg_q", "val": 20, "seq": 9})
+                     + nvlink.encode_cmd({"t": "set", "key": "roi_refine", "val": False, "seq": 10})
+                     + nvlink.encode_cmd({"t": "set", "key": "temporal", "val": False, "seq": 11})
+                     + nvlink.encode_cmd({"t": "set", "key": "detector_view", "val": "color_demo", "seq": 12}))
         got_pong = False
         hdrs = []
         for _ in range(15):
@@ -232,6 +239,9 @@ def test_board_stream_server_under_shim(tmp_path):
         last = hdrs[-1]
         assert last["drive"] == [100, -20]          # clamped
         assert last["q"] == 20 and last["tof_mm"] is not None
+        assert last["detector_view"] == "color_demo"
+        assert last["pipeline"] == "color_demo"
+        assert last["roi_refine"] is False and last["temporal"] is False
         assert any(h["det"] for h in hdrs)
         assert "cam" in hdrs[0] and hdrs[0]["cam"]["locked"]
         sock.close()

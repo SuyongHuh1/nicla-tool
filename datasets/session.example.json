@@ -1,0 +1,12 @@
+{
+  "label": "stool_wood_near_room",
+  "target": "stool",
+  "floor": "wood_a",
+  "lighting": "room_on",
+  "camera_height_mm": 120,
+  "camera_tilt_deg": 45,
+  "mount_id": "front_mount_v1",
+  "object_variant": "clay_soft_01",
+  "distance_band": "near",
+  "notes": "hand and brown eraser included as hard negatives"
+}

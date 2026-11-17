@@ -125,7 +125,8 @@ class FakeBoard:
             ok, jpg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, self.state["jpeg_q"]])
             hdr = {"v": 1, "seq": seq, "ms": t_cap, "w": self.w, "h": self.h, "tof_mm": tof, "det": dets,
                    "mode": self.state["mode"], "vehicle": self.state["vehicle"], "drive": self.state["last_drive"],
-                   "fps": self.fps, "q": self.state["jpeg_q"], "led": int(led), "illum": mode}
+                   "fps": self.fps, "q": self.state["jpeg_q"], "led": int(led), "illum": mode,
+                   "detector": "color_demo"}
             if seq % 30 == 0:
                 hdr["cam"] = {"locked": True, "exp_us": 10000, "gain_db": 6.0, "wb": None, "lock_errors": [], "fake": True}
             hdr.update(replies)

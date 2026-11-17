@@ -1,0 +1,37 @@
+{
+  "dataset_version": "v1",
+  "training": {
+    "source_records": 195,
+    "exported_records": 195,
+    "exact_duplicates_removed": 0,
+    "duplicates": [],
+    "status_counts": {
+      "accepted": 53,
+      "corrected": 142
+    },
+    "shape_counts": {
+      "S01": 34,
+      "S02": 34,
+      "S03": 34,
+      "S04": 34,
+      "S05": 24,
+      "S06": 34,
+      "none": 1
+    }
+  },
+  "evaluation": {
+    "source_records": 15,
+    "exported_records": 15,
+    "exact_duplicates_removed": 0,
+    "duplicates": [],
+    "status_counts": {
+      "accepted": 15
+    },
+    "shape_counts": {
+      "mixed": 15
+    }
+  },
+  "total_exported_images": 210,
+  "local_paths_removed": true,
+  "intermediate_artifacts_included": false
+}
