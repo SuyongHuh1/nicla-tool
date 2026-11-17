@@ -7,6 +7,12 @@
 
 ## Scope and isolation
 
+> Integration clarification (2026-11-14): this is a historical report about
+> the reproduction work relative to af8ea65. The complete branch relative to
+> main also changes the Nicla runtime, laptop viewer, protocol documentation,
+> tests and mobile UI. Those changes are included in the integration.
+> The current project plan is docs/roadmap.md.
+
 This branch is prepared in a separate Git worktree. It contains only the
 stool-model training, cross-validation, independent evaluation, curated public
 dataset, versioned model, tests, and documentation needed for reproduction.
@@ -109,6 +115,7 @@ The dataset has no standalone license yet. Before pushing the public data, the
 repository owner should select a data license and confirm redistribution of the
 captured floor images. No license was inferred or added automatically.
 
-After that decision, this isolated branch can be committed and pushed without
-touching `main` or the other working directory. A pull request can then be used
-for review and conflict detection.
+The paragraph above records the release consideration at the time of this
+report. The files are now committed; a standalone data license remains unset.
+The owner has authorized integration into main. That authorization does not
+select or imply a dataset license.
