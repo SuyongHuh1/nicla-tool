@@ -11,7 +11,7 @@ DETECTOR_MODE = "auto"  # "auto" | "tinyml_roi" | "color_demo"
 # path.  A model baked into custom OpenMV firmware can use a /rom/... path.
 FOMO_MODEL_PATH = "fomo_stool_v1.tflite"
 FOMO_LABELS_PATH = "labels.txt"
-FOMO_CONFIDENCE = 0.55
+FOMO_CONFIDENCE = 0.60  # Versioned v1 reference; retuned models need their own threshold.
 FOMO_LOAD_TO_FB = True
 
 # Runtime switches.  The laptop viewer can temporarily change these without
