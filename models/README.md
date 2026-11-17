@@ -1,29 +1,28 @@
 # Model artifacts
 
-Train one FOMO object-detection model with labels in this order:
+## Current deployment: stool-only v1
 
-1. `background`
-2. `stool`
-3. `urine`
+- Model: fomo_stool_v1.tflite (18,672 bytes), uint8 96×96 RGB input.
+- Labels in order: background, stool.
+- Reference confidence threshold: 0.60.
+- Provenance and metrics: ../reports/stool_fomo_v1_reference.json.
 
-Keep exported `.tflite` files out of git by default. For filesystem loading,
-copy the final model to the Nicla drive as `fomo_stool_urine.tflite` beside
-`main.py` and `labels.txt`. If the board reports an allocation error, export or
-build OpenMV firmware with the model embedded and set `FOMO_MODEL_PATH` in
-`nicla/detection_config.py` to the resulting `/rom/...tflite` path.
+Copy fomo_stool_v1.tflite to the Nicla drive using that exact name. Copy
+fomo_stool_v1_labels.txt as labels.txt beside main.py. The checked-in
+nicla/labels.txt contains the same two labels. Use DETECTOR_MODE="tinyml_roi"
+for hardware validation; auto can fall back to the LAB color demo.
 
-The board header reports `detector=tinyml_roi` only when the model loaded. In
-`auto` mode it reports `color_demo` when it fell back to the phase-1 LAB test.
+Rebuild with reproduce_stool_v1.ps1. A retrained artifact must be paired with
+its own validation-selected threshold; 0.40 in the reproduction report belongs
+to that separate run, not the versioned reference model.
+Measure board FPS, memory, and end-to-end behavior separately from offline F1.
 
-## Reproducible stool-only v1 model
+## Future urine model
 
-- `fomo_stool_v1.tflite`: 96x96 int8 Tiny CNN-FOMO, 18,672 bytes
-- `fomo_stool_v1_labels.txt`: `background`, `stool`
+A stool+urine model requires new training data and validation. Deploy its model,
+ordered labels and threshold together and update FOMO_MODEL_PATH explicitly.
+Do not append urine to the current model's labels or interpret the UI candidate
+as a trained urine detection.
 
-The versioned artifact was trained from `datasets/stool_public/v1` and is
-described by `reports/stool_fomo_v1_reference.json`. Rebuild it with
-`reproduce_stool_v1.ps1`. To try it on the board, copy the model as
-`fomo_stool_v1.tflite` and copy the label file as `labels.txt`; do not confuse
-it with a future three-class stool+urine model. The checked-in
-`nicla/detection_config.py` uses these exact board-side names.
-
+If allocation fails, investigate board memory and supported model embedding
+before adopting a /rom/ model path. No embedded build is included here.
