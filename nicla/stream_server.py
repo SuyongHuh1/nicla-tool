@@ -70,7 +70,35 @@ state = {
 
 def wifi_up():
     mode = getattr(cfg, "WIFI_MODE", "sta")
-    if mode == "ap":
+    if mode not in ("auto", "sta", "ap"):
+        raise SystemExit("WIFI_MODE must be auto, sta, or ap")
+
+    wlan = None
+    active_mode = None
+    if mode in ("auto", "sta"):
+        sta = network.WLAN(network.STA_IF)
+        sta.active(True)
+        sta.connect(cfg.WIFI_SSID, cfg.WIFI_PASS)
+        timeout_ms = int(getattr(cfg, "WIFI_STA_TIMEOUT_MS", 10000))
+        t0 = time.ticks_ms()
+        while not sta.isconnected():
+            led.toggle()
+            time.sleep_ms(250)
+            if time.ticks_diff(time.ticks_ms(), t0) > timeout_ms:
+                break
+        if sta.isconnected():
+            wlan = sta
+            active_mode = "sta"
+        else:
+            try:
+                sta.active(False)
+            except Exception:
+                pass
+            if mode == "sta":
+                raise SystemExit("Wi-Fi connect timeout (2.4 GHz WPA2-PSK only)")
+            print("# Wi-Fi STA unavailable; starting AP fallback")
+
+    if wlan is None:
         wlan = network.WLAN(network.AP_IF)
         # OpenMV 4.3.x used ``essid/password`` while newer MicroPython WLAN
         # builds use ``ssid/key``.  Nicla boards in the field can have either
@@ -80,20 +108,13 @@ def wifi_up():
         except (TypeError, ValueError):
             wlan.config(essid=cfg.AP_SSID, password=cfg.AP_PASS)
         wlan.active(True)
-    else:
-        wlan = network.WLAN(network.STA_IF)
-        wlan.active(True)
-        wlan.connect(cfg.WIFI_SSID, cfg.WIFI_PASS)
-        t0 = time.ticks_ms()
-        while not wlan.isconnected():
-            led.toggle()
-            time.sleep_ms(250)
-            if time.ticks_diff(time.ticks_ms(), t0) > 30000:
-                raise SystemExit("Wi-Fi connect timeout (2.4 GHz WPA2-PSK only)")
+        active_mode = "ap"
     try:
         ip = wlan.ipconfig("addr4")[0]
     except Exception:
         ip = wlan.ifconfig()[0]
+    state["wifi_mode"] = active_mode
+    state["wifi_ip"] = ip
     return ip
 
 
@@ -237,7 +258,9 @@ def serve(client, cam, tof, cam_info, illum, detector, color_detector,
                "roi_refine_active": pipeline == "fomo_roi",
                "temporal": bool(state["temporal"]),
                "temporal_window": temporal_filter.window,
-               "temporal_min_hits": temporal_filter.min_hits}
+               "temporal_min_hits": temporal_filter.min_hits,
+               "wifi_mode": state.get("wifi_mode"),
+               "wifi_ip": state.get("wifi_ip")}
         if seq % 30 == 0:
             hdr["cam"] = cam_info
             hdr["mem"] = gc.mem_free()

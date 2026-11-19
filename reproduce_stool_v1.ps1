@@ -2,7 +2,8 @@ param(
     [string]$RunName = ("stool_public_v1_{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss")),
     [int]$Epochs = 30,
     [string]$PythonPath = "",
-    [switch]$RunCrossValidation
+    [switch]$RunCrossValidation,
+    [switch]$OpenMv43Compatible
 )
 
 $ErrorActionPreference = "Stop"
@@ -74,15 +75,22 @@ $finalRoot = Join-Path $runRoot "final_default"
     --classes background,stool
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-& $python "laptop\train_stool_fomo.py" (Join-Path $finalRoot "manifest.jsonl") `
-    --architecture tiny `
-    --classes background,stool `
-    --metric-class stool `
-    --output $finalRoot `
-    --model-out (Join-Path $finalRoot "model.tflite") `
-    --labels-out (Join-Path $finalRoot "labels.txt") `
-    --epochs $Epochs `
-    --augmentation default
+$trainingArgs = @(
+    "laptop\train_stool_fomo.py",
+    (Join-Path $finalRoot "manifest.jsonl"),
+    "--architecture", "tiny",
+    "--classes", "background,stool",
+    "--metric-class", "stool",
+    "--output", $finalRoot,
+    "--model-out", (Join-Path $finalRoot "model.tflite"),
+    "--labels-out", (Join-Path $finalRoot "labels.txt"),
+    "--epochs", $Epochs,
+    "--augmentation", "default"
+)
+if ($OpenMv43Compatible) {
+    $trainingArgs += "--openmv-legacy"
+}
+& $python @trainingArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $validationRoot = Join-Path $finalRoot "validation"

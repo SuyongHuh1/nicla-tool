@@ -28,6 +28,7 @@ Arduino Nicla Vision에서 FOMO로 분변 중심을 찾고, ROI의 LAB 색상 �
 | `datasets/` | FOMO 데이터와 필요 시 ROI 세그멘테이션 데이터를 준비하는 작업 공간 |
 | `models/` | FOMO 모델 배포 방법과 로컬 모델 보관 위치 |
 | `results/` | 측정 결과 (git에 올림) |
+| `sites/` | 데모용 모바일 웹 UI 정적 빌드 |
 
 ## 빠른 시작 (보드 없이)
 
@@ -73,6 +74,13 @@ py laptop\viewer.py --host 127.0.0.1         # 창 2: 뷰어
 끌 수 있다. `P`는 FOMO 파이프라인과 기존 색상 데모를 비교한다. 기본 운용은
 `fomo_roi + ROI on + temporal on`이며 전환 상태는 녹화 메타데이터에 남는다.
 
+라이브 화면 오른쪽의 `RECORD` 버튼은 원본 프레임과 검출 메타데이터 녹화를
+시작하고, 녹화 중 표시되는 `STOP REC`을 누르면 종료한다. `MASK ON/OFF`는
+검출 윤곽 또는 보드와 같은 LAB 조건으로 복원한 픽셀 영역을 초록색 반투명
+마스크로 표시하거나 숨긴다. 영역 정보가 없는 검출은 bbox/ROI로 대신 표시한다.
+마스크는 화면에만 표시되며 학습용 녹화 원본에는 합성되지 않는다. 키보드
+단축키는 각각 `R`, `M`이다.
+
 ## 재현용 분변 FOMO v1
 
 학습·평가에 필요한 최종 데이터만
@@ -99,3 +107,10 @@ Windows PowerShell에서 다음 명령으로 환경 구성부터 최종 모델·
 모든 생성물은 Git에서 제외된 `training_runs/<실행명>/`에 저장된다. 기준 모델과
 평가값은 각각 `models/fomo_stool_v1.tflite`와
 `reports/stool_fomo_v1_reference.json`에 있다.
+
+그림자와 심한 센서 노이즈를 수동 제외한 저조도 빈 바닥 8장은
+[`datasets/stool_lowlight_negative/v1`](datasets/stool_lowlight_negative/v1/README.md)에
+별도 추가 데이터셋으로 보관한다. 이 데이터만 추가한 재학습 후보는 일반
+테스트는 개선됐지만 독립 inference가 하락해 배포하지 않았다. 실험 결과는
+[`docs/lowlight_negative_experiment_20261119.md`](docs/lowlight_negative_experiment_20261119.md)에
+정리돼 있으며, Nicla에는 기존 OpenMV 4.3 호환 모델을 유지한다.

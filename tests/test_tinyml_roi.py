@@ -70,6 +70,7 @@ def test_fomo_then_stool_lab_and_urine_roi_fallback():
     stool, urine = detector.detect(img)
     assert stool["cls"] == "stool" and stool["refined"] is True
     assert stool["region_source"] == "lab" and stool["bbox"] == [135, 95, 40, 35]
+    assert stool["mask_lab"] == [[0, 45, 0, 35, 0, 45]]
     assert urine["cls"] == "urine" and urine["refined"] is False
     assert urine["region_source"] == "fomo_roi" and urine["bbox"] == urine["roi"]
 

@@ -9,13 +9,14 @@ Keys
   O         toggle ROI refinement T      toggle temporal 3-of-5 filter
   P         FOMO / colour compare
   R         start/stop recording  C      save current frame to captures/
+  M         show/hide mask overlay (the same actions are available as buttons)
   L         illumination LED: off -> on -> alt (alternate every frame)
   V         view: camera / LED on-off difference (needs alt; shows wet glints)
   H         toggle help           Q/ESC  quit (writes a session summary)
 
-Recording saves raw JPEGs (no overlay) + header JSON lines, so recordings can
-be used later as training data. On exit a summary (fps, latency, round-trip)
-is written to results/stream/<label>.json - that is the phase 1 Wi-Fi test.
+Recording saves raw JPEGs + header JSON lines for training and `screen.mp4`
+with the visible mask, boxes, HUD and controls. On exit a summary (fps,
+latency, round-trip) is written to results/stream/<label>.json.
 
 Vehicle control is a stub on the board for now: commands are acknowledged and
 shown in the HUD, but nothing moves until the vehicle UART link exists.
@@ -38,6 +39,8 @@ GRADE_NAMES = {0: "hard", 1: "normal", 2: "soft", 3: "liquid"}
 CLASS_COLORS = {"stool": (0, 140, 255), "urine": (255, 255, 0), "blob": (255, 0, 255)}
 FOMO_COLOR = (0, 255, 255)       # yellow: raw FOMO cell
 ROI_COLOR = (255, 120, 0)        # blue: fixed ROI around the FOMO centre
+MASK_COLOR = (60, 210, 80)       # green: display-only detection mask
+MASK_ALPHA = 0.36
 DRIVE_HOLD_S = 0.25
 CMD_RATE_HZ = 10
 
@@ -78,6 +81,8 @@ class Link:
         self.rec_dir = None
         self.rec_meta = None
         self.rec_count = 0
+        self.screen_writer = None
+        self.screen_path = None
         self.thread = threading.Thread(target=self._rx, daemon=True)
         self.thread.start()
 
@@ -143,7 +148,13 @@ class Link:
             path = self.rec_dir
             self.rec_dir = None
             self.rec_meta.close()
-            return "stopped (%d frames) %s" % (self.rec_count, path)
+            if self.screen_writer is not None:
+                self.screen_writer.release()
+            screen_path = self.screen_path
+            self.screen_writer = None
+            self.screen_path = None
+            return "stopped (%d frames) %s video=%s" % (
+                self.rec_count, path, screen_path or "not-created")
         d = os.path.join(self.record_root, time.strftime("%Y%m%d_%H%M%S") + "_" + self.label)
         os.makedirs(os.path.join(d, "frames"), exist_ok=True)
         if self.session_meta:
@@ -154,6 +165,8 @@ class Link:
         self.rec_meta = open(os.path.join(d, "meta.jsonl"), "a", encoding="utf-8")
         self.rec_count = 0
         self.rec_dir = d
+        self.screen_writer = None
+        self.screen_path = None
         return "recording -> %s" % d
 
     def _record(self, hdr, jpg, t):
@@ -162,6 +175,27 @@ class Link:
         with open(os.path.join(self.rec_dir, "frames", name), "wb") as f:
             f.write(jpg)
         self.rec_meta.write(json.dumps({"file": name, "t_recv_ms": t, "hdr": hdr}) + "\n")
+
+    def write_screen(self, frame, fps=10.0):
+        """Save the annotated Wi-Fi viewer frame exactly as displayed."""
+        if not self.rec_dir:
+            return
+        if self.screen_writer is None:
+            import cv2
+            height, width = frame.shape[:2]
+            self.screen_path = os.path.join(self.rec_dir, "screen.mp4")
+            self.screen_writer = cv2.VideoWriter(
+                self.screen_path, cv2.VideoWriter_fourcc(*"mp4v"),
+                max(1.0, float(fps or 10.0)), (width, height))
+            if not self.screen_writer.isOpened():
+                self.screen_writer.release()
+                self.screen_path = os.path.join(self.rec_dir, "screen.avi")
+                self.screen_writer = cv2.VideoWriter(
+                    self.screen_path, cv2.VideoWriter_fourcc(*"MJPG"),
+                    max(1.0, float(fps or 10.0)), (width, height))
+            if not self.screen_writer.isOpened():
+                raise RuntimeError("cannot create rendered recording")
+        self.screen_writer.write(frame)
 
     def close(self):
         self.alive = False
@@ -186,6 +220,70 @@ class Link:
 
 
 # ------------------------------------------------------------------ drawing
+def _scaled_box(values, scale):
+    return [int(v * scale) for v in values]
+
+
+def draw_mask_overlay(img, hdr, scale=1.0, alpha=MASK_ALPHA):
+    """Draw a translucent, display-only mask for every detection.
+
+    A refined contour is the preferred source.  Older/colour detections only
+    contain a bounding box, and FOMO-only detections contain an ROI; those are
+    deliberately shown as rectangular approximations rather than pretending
+    that pixel segmentation exists.
+    """
+    import cv2
+    lab_image = None
+    for d in hdr.get("det", []) or []:
+        mask = np.zeros(img.shape[:2], np.uint8)
+        contour = d.get("contour")
+        if contour:
+            pts = (np.array(contour, np.float32) * scale).astype(np.int32)
+            cv2.fillPoly(mask, [pts], 255)
+        elif d.get("mask_lab"):
+            if lab_image is None:
+                lab_image = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+            values = d.get("bbox") or d.get("roi") or d.get("fomo_bbox")
+            if values:
+                x, y, w, h = _scaled_box(values, scale)
+                x0, y0 = max(0, x), max(0, y)
+                x1, y1 = min(img.shape[1], x + w), min(img.shape[0], y + h)
+                if x1 > x0 and y1 > y0:
+                    lab_roi = lab_image[y0:y1, x0:x1]
+                    threshold_mask = np.zeros(lab_roi.shape[:2], np.uint8)
+                    for threshold in d["mask_lab"]:
+                        l0, l1, a0, a1, b0, b1 = threshold
+                        # OpenMV: L=0..100, A/B=-128..127. OpenCV stores
+                        # L=0..255 and offsets A/B by 128.
+                        lower = (round(l0 * 255.0 / 100.0), a0 + 128, b0 + 128)
+                        upper = (round(l1 * 255.0 / 100.0), a1 + 128, b1 + 128)
+                        threshold_mask = cv2.bitwise_or(
+                            threshold_mask, cv2.inRange(lab_roi, lower, upper))
+                    mask[y0:y1, x0:x1] = threshold_mask
+        else:
+            values = d.get("bbox") or d.get("roi") or d.get("fomo_bbox")
+            if not values:
+                continue
+            x, y, w, h = _scaled_box(values, scale)
+            cv2.rectangle(mask, (x, y), (x + w, y + h), 255, -1)
+        pixels = mask > 0
+        if not np.any(pixels):
+            # A JPEG-decoded laptop frame can differ by a few LAB units from
+            # the board image.  Keep the detection visible as a rectangular
+            # approximation if that removes every thresholded pixel.
+            values = d.get("bbox") or d.get("roi") or d.get("fomo_bbox")
+            if not values:
+                continue
+            x, y, w, h = _scaled_box(values, scale)
+            cv2.rectangle(mask, (x, y), (x + w, y + h), 255, -1)
+            pixels = mask > 0
+        color = np.asarray(MASK_COLOR, dtype=np.float32)
+        img[pixels] = np.clip(
+            img[pixels].astype(np.float32) * (1.0 - alpha) + color * alpha,
+            0, 255).astype(np.uint8)
+    return img
+
+
 def draw_overlay(img, hdr, scale=1.0):
     import cv2
     for d in hdr.get("det", []) or []:
@@ -230,6 +328,35 @@ def draw_overlay(img, hdr, scale=1.0):
     return img
 
 
+def draw_controls(img, recording, show_mask):
+    """Draw clickable live-view controls and return their hit rectangles."""
+    import cv2
+    specs = [
+        ("record", "STOP REC" if recording else "RECORD", (45, 45, 220) if recording else (48, 62, 76)),
+        ("mask", "MASK ON" if show_mask else "MASK OFF", (45, 145, 65) if show_mask else (70, 70, 70)),
+    ]
+    margin, gap, height, width = 8, 7, 30, 104
+    x1 = img.shape[1] - margin
+    rects = {}
+    for index, (action, text, color) in enumerate(specs):
+        y0 = margin + index * (height + gap)
+        x0, y1 = x1 - width, y0 + height
+        cv2.rectangle(img, (x0, y0), (x1, y1), color, -1)
+        cv2.rectangle(img, (x0, y0), (x1, y1), (230, 230, 230), 1)
+        (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.43, 1)
+        cv2.putText(img, text, (x0 + (width - tw) // 2, y0 + (height + th) // 2 - 2),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.43, (255, 255, 255), 1, cv2.LINE_AA)
+        rects[action] = (x0, y0, x1, y1)
+    return rects
+
+
+def control_at(rects, x, y):
+    for action, (x0, y0, x1, y1) in rects.items():
+        if x0 <= x <= x1 and y0 <= y <= y1:
+            return action
+    return None
+
+
 def draw_hud(img, lines, origin=(8, 18)):
     import cv2
     x, y = origin
@@ -261,7 +388,7 @@ def hud_lines(link, hdr, speed, recording, show_help):
         lines.append("REC %d" % link.rec_count)
     if show_help:
         lines += ["WASD drive  SPACE stop  +/- speed  1/2/3 mode", "[ ] jpeg q  B blobs  R rec  C snap  Q quit",
-                  "O ROI  T temporal  P FOMO/color  L illum  V diff"]
+                  "O ROI  T temporal  P FOMO/color  L illum  V diff  M mask"]
     return lines
 
 
@@ -308,6 +435,16 @@ def main(argv=None):
     if not a.headless:
         import cv2
         cv2.namedWindow("nicla", cv2.WINDOW_AUTOSIZE)
+        mouse_events = deque()
+        button_rects = {}
+
+        def on_mouse(event, x, y, _flags, _param):
+            if event == cv2.EVENT_LBUTTONUP:
+                action = control_at(button_rects, x, y)
+                if action:
+                    mouse_events.append(action)
+
+        cv2.setMouseCallback("nicla", on_mouse)
 
     speed, show_help = 50, True
     drive, last_drive_key, driving = (0, 0), 0.0, False
@@ -318,6 +455,7 @@ def main(argv=None):
     illum_modes = ("off", "on", "alt")
     illum = a.illum or "off"
     diff_view = False
+    show_mask = True
     last_hdr = {}
     t_start = time.monotonic()
     try:
@@ -360,11 +498,21 @@ def main(argv=None):
                 if img is not None:
                     if a.scale != 1.0:
                         img = cv2.resize(img, None, fx=a.scale, fy=a.scale, interpolation=cv2.INTER_NEAREST)
+                    if show_mask:
+                        draw_mask_overlay(img, hdr, a.scale)
                     draw_overlay(img, hdr, a.scale)
                     draw_hud(img, hud_lines(link, hdr, speed, bool(link.rec_dir), show_help))
+                    button_rects.clear()
+                    button_rects.update(draw_controls(img, bool(link.rec_dir), show_mask))
+                    link.write_screen(img, hdr.get("fps", 10.0))
                     cv2.imshow("nicla", img)
                     jpeg_q = hdr.get("q", jpeg_q)
             k = cv2.waitKey(5) & 0xFF
+            mouse_action = mouse_events.popleft() if mouse_events else None
+            if mouse_action == "record":
+                print(link.toggle_record())
+            elif mouse_action == "mask":
+                show_mask = not show_mask
             if k == 255:
                 continue
             ch = chr(k).lower() if k < 128 else ""
@@ -402,6 +550,8 @@ def main(argv=None):
                            "val": "color_demo" if current == "fomo" else "fomo"})
             elif ch == "r":
                 print(link.toggle_record())
+            elif ch == "m":
+                show_mask = not show_mask
             elif ch == "c":
                 with link.lock:
                     latest = link.latest

@@ -2,9 +2,11 @@ __pycache__/
 .pytest_cache/
 .venv/
 tmp/
+.git-runtime/
 nicla/wifi_config.py
 recordings/
 captures/
+results/stream/
 *.pyc
 
 # Local training data and generated annotations can be large and may contain
@@ -20,4 +22,5 @@ training_runs/
 # Exported models are copied to the Nicla drive or baked into firmware.
 models/*.tflite
 !models/fomo_stool_v1.tflite
+!models/fomo_stool_v1_openmv43.tflite
 nicla/*.tflite

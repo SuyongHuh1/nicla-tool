@@ -39,6 +39,7 @@ TCP, 보드가 서버(포트 5005), 노트북이 클라이언트. 동시에 한 
 | `detector_view` | 요청한 비교 경로 (`fomo` / `color_demo`) |
 | `roi_refine`, `roi_refine_active` | ROI 보정 설정 / 현재 실제 적용 여부 |
 | `temporal`, `temporal_window`, `temporal_min_hits` | 시간축 필터 설정 |
+| `wifi_mode`, `wifi_ip` | 현재 실제 연결 방식(`sta`/`ap`)과 보드 IP |
 | `ack` / `pong` / `err` | 명령 응답 (해당 프레임에만) |
 
 검출 항목 (`det`의 원소) — 있는 키만 그린다
@@ -78,5 +79,10 @@ JSON 한 줄 + `\n`. 모든 명령에 `seq`.
 `M,<left>,<right>\n`, `S\n`. 차량 쪽은 0.5초간 명령이 없으면 스스로 정지(워치독).
 노트북 연결이 끊기면 보드가 `vehicle_stop()`을 호출하지만 현재는 상태만 갱신한다.
 실제 정지를 위해 차량 UART와 차량 측 워치독 구현이 필요하다.
+
+차량 장착 시 `WIFI_MODE = "auto"`를 권장한다. Nicla는 지정된 2.4 GHz
+WPA2 네트워크에 먼저 접속하고, 제한 시간 내 실패하면 `nicla-cam` AP를
+연다. 따라서 데모용 공유기가 있으면 인터넷과 UI를 함께 사용하고,
+공유기가 없어도 로컬 수동 조작 경로를 유지할 수 있다.
 
 ⚠ Nicla 헤더 핀은 3.3 V. 5 V 아두이노(우노 등)와 연결하면 레벨 시프터 필요.

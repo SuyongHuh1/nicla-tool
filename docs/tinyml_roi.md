@@ -162,6 +162,8 @@ LED 켬/끔 차분 blob을 사용한다.
    복사하고 `models/fomo_stool_v1_labels.txt`는 `labels.txt`로 복사한다.
 3. `DETECTOR_MODE="tinyml_roi"`로 바꾸고 기준 모델 임계값 `0.60`을 확인한다.
    재학습 모델은 해당 validation에서 선택된 임계값을 사용한다.
+   `fomo_stool_v1_openmv43.tflite`를 배포한다면 해당 모델의 검증값 `0.65`로
+   함께 변경한다.
 4. 시리얼의 `# detector`가 `tinyml_roi`, 뷰어 HUD가 `fomo_roi`인지 확인한다.
 5. 실제 보드의 FPS, `mem` 값, 중심 오차, ROI bbox 커버리지를 기록한다.
 

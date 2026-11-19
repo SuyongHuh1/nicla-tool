@@ -180,6 +180,7 @@ class TinyMlRoiDetector:
                     candidate["px"] = int(blob.pixels())
                     candidate["refined"] = True
                     candidate["region_source"] = "lab"
+                    candidate["mask_lab"] = [list(t) for t in thresholds]
             results.append(candidate)
         return results
 
@@ -258,7 +259,8 @@ class ColorDemoDetector:
             out.append({"cls": "blob", "bbox": list(_blob_rect(blob)),
                         "cx": int(blob.cx()), "cy": int(blob.cy()),
                         "px": int(blob.pixels()), "source": "lab_demo",
-                        "region_source": "lab", "refined": True})
+                        "region_source": "lab", "refined": True,
+                        "mask_lab": [list(t) for t in self.thresholds]})
             if len(out) >= 8:
                 break
         return out

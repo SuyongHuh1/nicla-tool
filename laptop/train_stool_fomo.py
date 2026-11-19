@@ -65,8 +65,13 @@ def load_split(rows, split, positive_weight, class_count):
     return selected, images, targets, weights
 
 
+def normalize_openmv_input(images):
+    """Map raw camera bytes to the real-valued range used by int8 OpenMV models."""
+    return images.astype(np.float32) / 127.5 - 1.0
+
+
 def make_dataset(images, targets, weights, batch_size, tf, training,
-                 augmentation=None):
+                 augmentation=None, external_normalization=False):
     dataset = tf.data.Dataset.from_tensor_slices((images, targets, weights))
     if training:
         dataset = dataset.shuffle(len(images), reshuffle_each_iteration=True)
@@ -77,6 +82,11 @@ def make_dataset(images, targets, weights, batch_size, tf, training,
                 image, target, weight, INPUT_SIZE, GRID_SIZE, augmentation, tf)
 
         dataset = dataset.map(augment, num_parallel_calls=tf.data.AUTOTUNE)
+    if external_normalization:
+        dataset = dataset.map(
+            lambda image, target, weight: (
+                image / 127.5 - 1.0, target, weight),
+            num_parallel_calls=tf.data.AUTOTUNE)
     return dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 
@@ -89,9 +99,13 @@ def conv_block(x, filters, stride, tf, name):
     return tf.keras.layers.ReLU(max_value=6.0, name=name + "_pw_relu")(x)
 
 
-def build_model(tf, architecture="tiny", class_count=2):
+def build_model(tf, architecture="tiny", class_count=2,
+                external_normalization=False):
     inputs = tf.keras.Input((INPUT_SIZE, INPUT_SIZE, 3), name="image")
-    x = tf.keras.layers.Rescaling(1.0 / 127.5, offset=-1.0, name="normalize")(inputs)
+    x = inputs
+    if not external_normalization:
+        x = tf.keras.layers.Rescaling(
+            1.0 / 127.5, offset=-1.0, name="normalize")(x)
     if architecture == "tiny":
         x = tf.keras.layers.Conv2D(
             12, 3, strides=2, padding="same", use_bias=True, name="stem_conv")(x)
@@ -165,8 +179,9 @@ def localization_metrics(model, rows, images, targets, split, class_id, class_na
     }
 
 
-def write_contact_sheet(path, rows, images, targets, model, class_id):
-    probabilities = model.predict(images, verbose=0)[..., class_id]
+def write_contact_sheet(path, rows, images, prediction_images, targets, model,
+                        class_id):
+    probabilities = model.predict(prediction_images, verbose=0)[..., class_id]
     tile_w, tile_h = 192, 222
     columns = 6
     rows_count = int(np.ceil(len(rows) / columns))
@@ -195,8 +210,13 @@ def write_contact_sheet(path, rows, images, targets, model, class_id):
     encoded.tofile(str(path))
 
 
-def convert_int8(model, representative_images, destination, tf):
+def convert_int8(model, representative_images, destination, tf,
+                 signed_io=False):
     def representative_dataset():
+        if signed_io:
+            shape = (1, INPUT_SIZE, INPUT_SIZE, 3)
+            yield [np.full(shape, -1.0, dtype=np.float32)]
+            yield [np.full(shape, 1.0, dtype=np.float32)]
         for image in representative_images[: min(100, len(representative_images))]:
             yield [image[None, ...].astype(np.float32)]
 
@@ -219,8 +239,9 @@ def convert_int8(model, representative_images, destination, tf):
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
     converter.representative_dataset = representative_dataset
     converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-    converter.inference_input_type = tf.uint8
-    converter.inference_output_type = tf.uint8
+    io_type = tf.int8 if signed_io else tf.uint8
+    converter.inference_input_type = io_type
+    converter.inference_output_type = io_type
     model_bytes = converter.convert()
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(model_bytes)
@@ -250,8 +271,15 @@ def quantization_parity(model, model_path, images, class_id, tf):
     output_scale, output_zero = output_detail["quantization"]
     quantized_probabilities = []
     for image in images:
-        quantized = np.clip(
-            np.rint(image / input_scale + input_zero), 0, 255).astype(np.uint8)
+        dtype = input_detail["dtype"]
+        if dtype == np.int8:
+            raw = np.clip(np.rint((image + 1.0) * 127.5), 0, 255)
+            quantized = (raw.astype(np.int16) - 128).astype(np.int8)
+        else:
+            limits = np.iinfo(dtype)
+            quantized = np.clip(
+                np.rint(image / input_scale + input_zero), limits.min, limits.max
+            ).astype(dtype)
         interpreter.set_tensor(input_detail["index"], quantized[None, ...])
         interpreter.invoke()
         output = interpreter.get_tensor(output_detail["index"])[0].astype(np.float32)
@@ -293,6 +321,10 @@ def main():
     parser.add_argument(
         "--metric-class", default="stool",
         help="class used for localization metrics and the contact sheet")
+    parser.add_argument(
+        "--openmv-legacy", action="store_true",
+        help=("export signed-int8 I/O with normalization outside the graph; "
+              "compatible with the legacy tf API in OpenMV 4.3.x"))
     args = parser.parse_args()
 
     try:
@@ -332,11 +364,15 @@ def main():
     test_rows, test_x, test_y, _test_w = data["test"]
     train_ds = make_dataset(
         train_x, train_y, train_w, args.batch_size, tf, training=True,
-        augmentation=augmentation)
+        augmentation=augmentation,
+        external_normalization=args.openmv_legacy)
     val_ds = make_dataset(
-        val_x, val_y, val_w, args.batch_size, tf, training=False)
+        val_x, val_y, val_w, args.batch_size, tf, training=False,
+        external_normalization=args.openmv_legacy)
 
-    model = build_model(tf, args.architecture, len(class_names))
+    model = build_model(
+        tf, args.architecture, len(class_names),
+        external_normalization=args.openmv_legacy)
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
         loss=tf.keras.losses.SparseCategoricalCrossentropy(),
@@ -355,22 +391,29 @@ def main():
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
+    prediction_x = {
+        split: (normalize_openmv_input(data[split][1])
+                if args.openmv_legacy else data[split][1])
+        for split in ("train", "validation", "test")
+    }
     metrics = {
         split: localization_metrics(
-            model, data[split][0], data[split][1], data[split][2], split,
+            model, data[split][0], prediction_x[split], data[split][2], split,
             metric_class_id, args.metric_class)
         for split in ("train", "validation", "test")
     }
     model_path = Path(args.model_out)
-    tflite = convert_int8(model, train_x, model_path, tf)
+    tflite = convert_int8(
+        model, prediction_x["train"], model_path, tf,
+        signed_io=args.openmv_legacy)
     quantized_check = quantization_parity(
-        model, model_path, test_x, metric_class_id, tf)
+        model, model_path, prediction_x["test"], metric_class_id, tf)
     labels_path = Path(args.labels_out)
     labels_path.parent.mkdir(parents=True, exist_ok=True)
     labels_path.write_text("\n".join(class_names) + "\n", encoding="utf-8")
     write_contact_sheet(
-        output_dir / "test_predictions.jpg", test_rows, test_x, test_y, model,
-        metric_class_id)
+        output_dir / "test_predictions.jpg", test_rows, test_x,
+        prediction_x["test"], test_y, model, metric_class_id)
 
     report = {
         "purpose": "pipeline smoke test; not approved for deployment",
@@ -382,6 +425,9 @@ def main():
         "output_grid": [GRID_SIZE, GRID_SIZE, len(class_names)],
         "class_names": list(class_names),
         "metric_class": args.metric_class,
+        "openmv_legacy": args.openmv_legacy,
+        "input_normalization": (
+            "external_-1_to_1" if args.openmv_legacy else "in_model_rescaling"),
         "parameters": int(model.count_params()),
         "epochs_requested": args.epochs,
         "epochs_completed": len(history.history["loss"]),

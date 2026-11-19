@@ -190,5 +190,6 @@ def install(wifi_mode="sta"):
 
     cfg = types.ModuleType("wifi_config")
     cfg.WIFI_MODE, cfg.WIFI_SSID, cfg.WIFI_PASS = wifi_mode, "x", "y"
+    cfg.WIFI_STA_TIMEOUT_MS = 100
     cfg.AP_SSID, cfg.AP_PASS = "nicla-cam", "nicla1234"
     sys.modules["wifi_config"] = cfg

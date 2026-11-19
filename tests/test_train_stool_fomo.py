@@ -1,6 +1,8 @@
 from pathlib import Path
 import sys
 
+import numpy as np
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "laptop"))
@@ -60,3 +62,11 @@ def test_invalid_augmentation_probability_is_rejected(tmp_path):
         assert "blur_probability" in str(error)
     else:
         raise AssertionError("invalid augmentation probability was accepted")
+
+
+def test_openmv_input_normalization_maps_camera_bytes_to_signed_range():
+    pixels = np.array([0, 128, 255], dtype=np.uint8)
+    normalized = train.normalize_openmv_input(pixels)
+    assert np.isclose(normalized[0], -1.0)
+    assert abs(float(normalized[1])) < 0.01
+    assert np.isclose(normalized[2], 1.0)

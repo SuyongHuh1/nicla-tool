@@ -13,7 +13,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from evaluate_fomo_tflite import center_roi, decode_fomo
+from evaluate_fomo_tflite import center_roi, decode_fomo, quantize_camera_rgb
 
 
 GRID_SIZE = 12
@@ -289,9 +289,7 @@ def load_tflite_probabilities(rows, model_path, class_id):
         image = read_image(Path(row["image"]))
         rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         resized = cv2.resize(rgb, (input_w, input_h), interpolation=cv2.INTER_AREA)
-        quantized = np.clip(
-            np.rint(resized.astype(np.float32) / input_scale + input_zero),
-            0, 255).astype(np.uint8)
+        quantized = quantize_camera_rgb(resized, input_detail)
         interpreter.set_tensor(input_detail["index"], quantized[None, ...])
         interpreter.invoke()
         output = interpreter.get_tensor(output_detail["index"])[0].astype(np.float32)

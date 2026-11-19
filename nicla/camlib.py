@@ -25,7 +25,26 @@ class Camera:
             sensor.reset()
             sensor.set_pixformat(getattr(sensor, pixformat))
             sensor.set_framesize(getattr(sensor, framesize))
-            sensor.skip_frames(time=warmup_ms)
+            try:
+                sensor.skip_frames(time=warmup_ms)
+            except (AttributeError, TypeError, RuntimeError):
+                # Nicla's OpenMV 4.3.x sensor module does not consistently
+                # expose skip_frames(time=...), and can time out once when the
+                # camera is handed from Wi-Fi streaming to USB streaming.
+                # Warm up with retrying snapshots so the same file works on
+                # those boards without requiring a physical unplug.
+                deadline = time.ticks_add(time.ticks_ms(), warmup_ms)
+                captured = False
+                last_error = None
+                while time.ticks_diff(deadline, time.ticks_ms()) > 0:
+                    try:
+                        sensor.snapshot()
+                        captured = True
+                    except RuntimeError as error:
+                        last_error = error
+                        time.sleep_ms(20)
+                if not captured and last_error is not None:
+                    raise last_error
         self.locked = False
 
     def snapshot(self):

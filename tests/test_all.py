@@ -1,7 +1,9 @@
 import csv
+import io
 import json
 import os
 import socket
+import struct
 import subprocess
 import sys
 import threading
@@ -21,6 +23,7 @@ import capture  # noqa: E402
 import fake_nicla  # noqa: E402
 import nvlink  # noqa: E402
 import viewer  # noqa: E402
+import usb_viewer  # noqa: E402
 
 PY = sys.executable
 
@@ -174,6 +177,55 @@ def test_draw_overlay_all_fields():
                     "area_mm2": 1200.0, "height_mm": 8.0}]}
     viewer.draw_overlay(img, hdr, 2.0)
     assert img.sum() > 0
+
+
+def test_live_mask_and_controls():
+    img = np.zeros((240, 320, 3), np.uint8)
+    hdr = {"det": [
+        {"contour": [[20, 20], [60, 20], [40, 55]]},
+        {"bbox": [100, 80, 30, 20]},
+        {"roi": [170, 100, 40, 30]},
+    ]}
+    viewer.draw_mask_overlay(img, hdr)
+    assert img[30, 40].sum() > 0
+    assert img[90, 110].sum() > 0
+    assert img[110, 180].sum() > 0
+    assert img[5, 5].sum() == 0
+
+    rects = viewer.draw_controls(img, recording=False, show_mask=True)
+    record = rects["record"]
+    mask = rects["mask"]
+    assert viewer.control_at(rects, (record[0] + record[2]) // 2,
+                             (record[1] + record[3]) // 2) == "record"
+    assert viewer.control_at(rects, (mask[0] + mask[2]) // 2,
+                             (mask[1] + mask[3]) // 2) == "mask"
+    assert viewer.control_at(rects, 0, 0) is None
+
+
+def test_live_mask_reconstructs_openmv_lab_pixels():
+    img = np.full((80, 100, 3), 255, np.uint8)
+    img[30:50, 40:60] = 0
+    hdr = {"det": [{"bbox": [20, 20, 60, 40],
+                    "mask_lab": [[0, 45, 0, 35, 0, 45]]}]}
+    before = img.copy()
+    viewer.draw_mask_overlay(img, hdr)
+    assert not np.array_equal(img[35, 45], before[35, 45])
+    assert np.array_equal(img[25, 25], before[25, 25])
+
+
+def test_usb_detection_packet_roundtrip():
+    image = np.zeros((24, 32, 3), np.uint8)
+    image[5:15, 8:20] = (20, 80, 140)
+    ok, encoded = cv2.imencode(".jpg", image)
+    assert ok
+    header = {"seq": 9, "detector": "color_demo", "pipeline": "color_demo",
+              "det": [{"cls": "blob", "bbox": [8, 5, 12, 10]}]}
+    raw_header = json.dumps(header).encode("utf-8")
+    packet = (usb_viewer.MAGIC + struct.pack("<III", 9, len(raw_header), len(encoded))
+              + raw_header + encoded.tobytes())
+    seq, parsed, jpeg, decoded = usb_viewer.read_packet(io.BytesIO(packet))
+    assert seq == 9 and parsed == header
+    assert jpeg[:2] == b"\xff\xd8" and decoded.shape == image.shape
 
 
 # ------------------------------------------------- end to end (simulated)

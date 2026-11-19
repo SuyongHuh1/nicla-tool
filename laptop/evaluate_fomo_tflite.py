@@ -35,6 +35,19 @@ def read_image(path):
     return image
 
 
+def quantize_camera_rgb(rgb, input_detail):
+    """Mirror the legacy OpenMV camera-to-tensor byte mapping."""
+    dtype = input_detail["dtype"]
+    if dtype == np.int8:
+        return (rgb.astype(np.int16) - 128).astype(np.int8)
+    input_scale, input_zero = input_detail["quantization"]
+    limits = np.iinfo(dtype)
+    return np.clip(
+        np.rint(rgb.astype(np.float32) / input_scale + input_zero),
+        limits.min, limits.max,
+    ).astype(dtype)
+
+
 def center_roi(cx, cy, size, image_w, image_h):
     rw, rh = size
     rw, rh = min(int(rw), image_w), min(int(rh), image_h)
@@ -162,9 +175,7 @@ def main():
         image_h, image_w = image.shape[:2]
         rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         resized = cv2.resize(rgb, (input_w, input_h), interpolation=cv2.INTER_AREA)
-        quantized = np.clip(
-            np.rint(resized.astype(np.float32) / input_scale + input_zero),
-            0, 255).astype(np.uint8)
+        quantized = quantize_camera_rgb(resized, input_detail)
         interpreter.set_tensor(input_detail["index"], quantized[None, ...])
         interpreter.invoke()
         output = interpreter.get_tensor(output_detail["index"])[0].astype(np.float32)
